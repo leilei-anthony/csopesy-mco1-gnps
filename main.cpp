@@ -1,160 +1,448 @@
 #include <iostream>
 #include <string>
-#include <limits>
-#include <cstdlib>
 #include <vector>
-#include <algorithm>
+#include <queue>
 #include <map>
-#include <chrono>
+#include <fstream>
 #include <sstream>
+#include <chrono>
 #include <iomanip>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
-#include <queue>
-#include <fstream>
 #include <atomic>
+#include <algorithm>
+#include <random>
+#include <memory>
 
-struct Process {
+// Configuration structure
+struct Config {
+    int numCpu = 4;
+    std::string scheduler = "fcfs";
+    int quantumCycles = 5;
+    int batchProcessFreq = 1;
+    int minIns = 1000;
+    int maxIns = 2000;
+    int delaysPerExec = 0;
+};
+
+// Process instruction types
+enum class InstructionType {
+    PRINT,
+    DECLARE,
+    ADD,
+    SUBTRACT,
+    SLEEP,
+    FOR_START,
+    FOR_END
+};
+
+struct Instruction {
+    InstructionType type;
+    std::vector<std::string> params;
+    int sleepCycles = 0;
+    int forRepeats = 0;
+};
+
+// Process representation
+class Process {
+public:
     std::string name;
+    int pid;
     int totalInstructions;
     int currentInstruction;
-    std::string creationTimestamp;
-    std::string finishTimestamp;
+    std::string creationTime;
+    std::string finishTime;
     int assignedCore;
     bool isFinished;
     std::vector<std::string> printLogs;
+    std::vector<Instruction> instructions;
+    std::map<std::string, uint16_t> variables;
     
-    Process(const std::string& processName, int instructions) 
-        : name(processName), totalInstructions(instructions), currentInstruction(0),
-          assignedCore(-1), isFinished(false) {
+    // Round-robin scheduling variables
+    int remainingQuantum;
+    int sleepCounter;
+    bool isSleeping;
+    
+    // For loop handling
+    std::vector<int> forLoopStack; // Stack for nested for loops
+    std::vector<int> forLoopCounters; // Current iteration counters
+    
+    Process(const std::string& processName, int pid) 
+        : name(processName), pid(pid), totalInstructions(0), currentInstruction(0),
+          assignedCore(-1), isFinished(false), remainingQuantum(0), 
+          sleepCounter(0), isSleeping(false) {
+        
         auto now = std::chrono::system_clock::now();
         std::time_t now_c = std::chrono::system_clock::to_time_t(now);
         std::stringstream ss;
-        ss << std::put_time(std::localtime(&now_c), "%m/%d/%Y %H:%M:%S%p");
-        creationTimestamp = ss.str();
+        ss << std::put_time(std::localtime(&now_c), "%m/%d/%Y, %I:%M:%S %p");
+        creationTime = ss.str();
     }
-};
-
-class ProcessScheduler {
-private:
-    std::queue<std::shared_ptr<Process>> readyQueue;
-    std::vector<std::shared_ptr<Process>> runningProcesses;
-    std::vector<std::shared_ptr<Process>> finishedProcesses;
-    std::vector<std::thread> coreThreads;
-    std::mutex queueMutex;
-    std::condition_variable cv;
-    std::atomic<bool> schedulerRunning{false};
-    std::atomic<bool> testMode{false};
-    int numCores;
-    std::thread schedulerThread;
+    
+    void generateRandomInstructions(int minIns, int maxIns) {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<> instrDis(minIns, maxIns);
+        std::uniform_int_distribution<> typeDis(0, 6);
+        
+        totalInstructions = instrDis(gen);
+        instructions.clear();
+        
+        for (int i = 0; i < totalInstructions; i++) {
+            Instruction instr;
+            int type = typeDis(gen);
+            
+            switch (type) {
+                case 0: // PRINT
+                    instr.type = InstructionType::PRINT;
+                    instr.params.push_back("Hello world from " + name + "!");
+                    break;
+                case 1: // DECLARE
+                    instr.type = InstructionType::DECLARE;
+                    instr.params.push_back("var" + std::to_string(i));
+                    instr.params.push_back(std::to_string(gen() % 100));
+                    break;
+                case 2: // ADD
+                    instr.type = InstructionType::ADD;
+                    instr.params.push_back("result" + std::to_string(i));
+                    instr.params.push_back("var1");
+                    instr.params.push_back("var2");
+                    break;
+                case 3: // SUBTRACT
+                    instr.type = InstructionType::SUBTRACT;
+                    instr.params.push_back("result" + std::to_string(i));
+                    instr.params.push_back("var1");
+                    instr.params.push_back("var2");
+                    break;
+                case 4: // SLEEP
+                    instr.type = InstructionType::SLEEP;
+                    instr.sleepCycles = (gen() % 10) + 1;
+                    break;
+                case 5: // FOR_START (simplified)
+                    instr.type = InstructionType::FOR_START;
+                    instr.forRepeats = (gen() % 5) + 1;
+                    break;
+                case 6: // FOR_END
+                    instr.type = InstructionType::FOR_END;
+                    break;
+            }
+            
+            instructions.push_back(instr);
+        }
+    }
     
     std::string getCurrentTimestamp() {
         auto now = std::chrono::system_clock::now();
         std::time_t now_c = std::chrono::system_clock::to_time_t(now);
         std::stringstream ss;
-        ss << std::put_time(std::localtime(&now_c), "%m/%d/%Y %H:%M:%S%p");
+        ss << std::put_time(std::localtime(&now_c), "%m/%d/%Y, %I:%M:%S %p");
         return ss.str();
     }
     
-    void coreWorker(int coreId) {
-        while (schedulerRunning) {
-            std::shared_ptr<Process> process = nullptr;
-            
-            {
-                std::unique_lock<std::mutex> lock(queueMutex);
-                cv.wait(lock, [this] { return !readyQueue.empty() || !schedulerRunning; });
-                
-                if (!schedulerRunning) break;
-                
-                if (!readyQueue.empty()) {
-                    process = readyQueue.front();
-                    readyQueue.pop();
-                    process->assignedCore = coreId;
-                    runningProcesses.push_back(process);
-                }
+    bool executeNextInstruction(int coreId) {
+        if (currentInstruction >= totalInstructions) {
+            if (!isFinished) {
+                isFinished = true;
+                finishTime = getCurrentTimestamp();
             }
-            
-            if (process) {
-                // Execute process instructions
-                while (process->currentInstruction < process->totalInstructions && schedulerRunning) {
-                    process->currentInstruction++;
-                    
-                    // Add print log entry
-                    std::stringstream logEntry;
-                    logEntry << "(" << getCurrentTimestamp() << ") Core:" << coreId 
-                            << " \"Hello world from " << process->name << "!\"";
-                    process->printLogs.push_back(logEntry.str());
-                    
-                    // Simulate instruction execution time
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                }
-                
-                // Mark process as finished
-                {
-                    std::lock_guard<std::mutex> lock(queueMutex);
-                    process->isFinished = true;
-                    process->finishTimestamp = getCurrentTimestamp();
-                    process->assignedCore = -1;
-                    
-                    // Remove from running processes
-                    runningProcesses.erase(
-                        std::remove(runningProcesses.begin(), runningProcesses.end(), process),
-                        runningProcesses.end());
-                    
-                    finishedProcesses.push_back(process);
-                }
-                
-                // Generate text file for process
-                generateProcessFile(process);
-            }
+            return false;
         }
+        
+        if (isSleeping) {
+            sleepCounter--;
+            if (sleepCounter <= 0) {
+                isSleeping = false;
+            }
+            return true; // Still running but sleeping
+        }
+        
+        Instruction& instr = instructions[currentInstruction];
+        
+        switch (instr.type) {
+            case InstructionType::PRINT: {
+                std::stringstream logEntry;
+                logEntry << "(" << getCurrentTimestamp() << ") Core:" << coreId 
+                        << " \"" << instr.params[0] << "\"";
+                printLogs.push_back(logEntry.str());
+                break;
+            }
+            case InstructionType::DECLARE:
+                if (instr.params.size() >= 2) {
+                    variables[instr.params[0]] = static_cast<uint16_t>(std::stoi(instr.params[1]));
+                }
+                break;
+            case InstructionType::ADD:
+                if (instr.params.size() >= 3) {
+                    uint16_t val1 = getValue(instr.params[1]);
+                    uint16_t val2 = getValue(instr.params[2]);
+                    variables[instr.params[0]] = val1 + val2;
+                }
+                break;
+            case InstructionType::SUBTRACT:
+                if (instr.params.size() >= 3) {
+                    uint16_t val1 = getValue(instr.params[1]);
+                    uint16_t val2 = getValue(instr.params[2]);
+                    variables[instr.params[0]] = val1 - val2;
+                }
+                break;
+            case InstructionType::SLEEP:
+                isSleeping = true;
+                sleepCounter = instr.sleepCycles;
+                break;
+            case InstructionType::FOR_START:
+                forLoopStack.push_back(currentInstruction);
+                forLoopCounters.push_back(0);
+                break;
+            case InstructionType::FOR_END:
+                if (!forLoopStack.empty()) {
+                    int& counter = forLoopCounters.back();
+                    int startPos = forLoopStack.back();
+                    counter++;
+                    
+                    if (counter < instructions[startPos].forRepeats) {
+                        currentInstruction = startPos;
+                    } else {
+                        forLoopStack.pop_back();
+                        forLoopCounters.pop_back();
+                    }
+                }
+                break;
+        }
+        
+        currentInstruction++;
+        return true;
     }
     
-    void generateProcessFile(std::shared_ptr<Process> process) {
-        std::string filename = process->name + ".txt";
-        std::ofstream file(filename);
-        
-        if (file.is_open()) {
-            file << "Process name: " << process->name << std::endl;
-            file << "Logs:" << std::endl;
-            file << std::endl;
-            
-            for (const auto& log : process->printLogs) {
-                file << log << std::endl;
-            }
-            
-            file.close();
+private:
+    uint16_t getValue(const std::string& param) {
+        // Check if it's a number
+        if (std::isdigit(param[0])) {
+            return static_cast<uint16_t>(std::stoi(param));
         }
+        // Otherwise, it's a variable
+        if (variables.find(param) == variables.end()) {
+            variables[param] = 0; // Auto-declare with value 0
+        }
+        return variables[param];
     }
+};
+
+// CPU Scheduler implementation
+class CPUScheduler {
+private:
+    Config config;
+    std::queue<std::shared_ptr<Process>> readyQueue;
+    std::vector<std::shared_ptr<Process>> runningProcesses;
+    std::vector<std::shared_ptr<Process>> finishedProcesses;
+    std::vector<std::thread> coreThreads;
+    std::thread batchGeneratorThread;
+    
+    std::mutex schedulerMutex;
+    std::condition_variable cv;
+    std::atomic<bool> schedulerRunning{false};
+    std::atomic<bool> batchGenerationRunning{false};
+    std::atomic<int> cpuTicks{0};
+    std::atomic<int> processCounter{1};
+    
+    bool initialized = false;
     
 public:
-    ProcessScheduler(int cores = 4) : numCores(cores) {}
-    
-    void initialize() {
-        if (schedulerRunning) {
-            std::cout << "Scheduler is already running." << std::endl;
-            return;
+    bool initialize() {
+        if (initialized) {
+            std::cout << "Scheduler already initialized." << std::endl;
+            return false;
+        }
+        
+        // Read config file
+        if (!loadConfig()) {
+            std::cout << "Error: Could not load config.txt" << std::endl;
+            return false;
         }
         
         schedulerRunning = true;
         
+        // Start CPU tick counter
+        std::thread tickThread([this]() {
+            while (schedulerRunning) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                cpuTicks++;
+            }
+        });
+        tickThread.detach();
+        
         // Start core worker threads
-        for (int i = 0; i < numCores; i++) {
-            coreThreads.emplace_back(&ProcessScheduler::coreWorker, this, i);
+        for (int i = 0; i < config.numCpu; i++) {
+            coreThreads.emplace_back(&CPUScheduler::coreWorker, this, i);
         }
         
-        std::cout << "Scheduler initialized with " << numCores << " cores." << std::endl;
+        initialized = true;
+        std::cout << "Scheduler initialized with " << config.numCpu << " CPU cores using " 
+                  << config.scheduler << " scheduling algorithm." << std::endl;
+        return true;
     }
     
-    void stop() {
-        if (!schedulerRunning) {
-            std::cout << "Scheduler is not running." << std::endl;
+    void startBatchGeneration() {
+        if (!initialized) {
+            std::cout << "Please initialize the scheduler first." << std::endl;
             return;
         }
         
+        if (batchGenerationRunning) {
+            std::cout << "Batch process generation is already running." << std::endl;
+            return;
+        }
+        
+        batchGenerationRunning = true;
+        batchGeneratorThread = std::thread([this]() {
+            int lastTick = cpuTicks;
+            while (batchGenerationRunning && schedulerRunning) {
+                if (cpuTicks - lastTick >= config.batchProcessFreq) {
+                    std::string processName = "p" + std::to_string(processCounter++);
+                    auto process = std::make_shared<Process>(processName, processCounter - 1);
+                    process->generateRandomInstructions(config.minIns, config.maxIns);
+                    
+                    {
+                        std::lock_guard<std::mutex> lock(schedulerMutex);
+                        readyQueue.push(process);
+                    }
+                    cv.notify_one();
+                    lastTick = cpuTicks;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        });
+        
+        std::cout << "Batch process generation started." << std::endl;
+    }
+    
+    void stopBatchGeneration() {
+        if (!batchGenerationRunning) {
+            std::cout << "Batch process generation is not running." << std::endl;
+            return;
+        }
+        
+        batchGenerationRunning = false;
+        if (batchGeneratorThread.joinable()) {
+            batchGeneratorThread.join();
+        }
+        std::cout << "Batch process generation stopped." << std::endl;
+    }
+    
+    void addProcess(const std::string& name) {
+        if (!initialized) {
+            std::cout << "Please initialize the scheduler first." << std::endl;
+            return;
+        }
+        
+        auto process = std::make_shared<Process>(name, processCounter++);
+        process->generateRandomInstructions(config.minIns, config.maxIns);
+        
+        {
+            std::lock_guard<std::mutex> lock(schedulerMutex);
+            readyQueue.push(process);
+        }
+        cv.notify_one();
+    }
+    
+    std::shared_ptr<Process> getProcess(const std::string& name) {
+        std::lock_guard<std::mutex> lock(schedulerMutex);
+        
+        // Check running processes
+        for (const auto& process : runningProcesses) {
+            if (process->name == name) return process;
+        }
+        
+        // Check finished processes
+        for (const auto& process : finishedProcesses) {
+            if (process->name == name) return process;
+        }
+        
+        // Check ready queue
+        std::queue<std::shared_ptr<Process>> tempQueue = readyQueue;
+        while (!tempQueue.empty()) {
+            auto process = tempQueue.front();
+            tempQueue.pop();
+            if (process->name == name) return process;
+        }
+        
+        return nullptr;
+    }
+    
+    void listProcesses() {
+        std::lock_guard<std::mutex> lock(schedulerMutex);
+        
+        int coresUsed = runningProcesses.size();
+        int coresAvailable = config.numCpu - coresUsed;
+        double cpuUtilization = (double)coresUsed / config.numCpu * 100.0;
+        
+        std::cout << "CPU utilization: " << std::fixed << std::setprecision(2) 
+                  << cpuUtilization << "%" << std::endl;
+        std::cout << "Cores used: " << coresUsed << std::endl;
+        std::cout << "Cores available: " << coresAvailable << std::endl;
+        std::cout << std::endl;
+        
+        std::cout << "Running processes:" << std::endl;
+        for (const auto& process : runningProcesses) {
+            std::cout << process->name << "\t(" << process->creationTime 
+                      << ")\tCore: " << process->assignedCore << "\t"
+                      << process->currentInstruction << " / " 
+                      << process->totalInstructions << std::endl;
+        }
+        
+        std::cout << std::endl << "Finished processes:" << std::endl;
+        for (const auto& process : finishedProcesses) {
+            std::cout << process->name << "\t(" << process->creationTime 
+                      << ")\tFinished\t" << process->finishTime << "\t"
+                      << process->totalInstructions << " / " 
+                      << process->totalInstructions << std::endl;
+        }
+    }
+    
+    void generateReport() {
+        std::ofstream file("csopesy-log.txt");
+        if (!file.is_open()) {
+            std::cout << "Error: Could not create csopesy-log.txt" << std::endl;
+            return;
+        }
+        
+        std::lock_guard<std::mutex> lock(schedulerMutex);
+        
+        int coresUsed = runningProcesses.size();
+        int coresAvailable = config.numCpu - coresUsed;
+        double cpuUtilization = (double)coresUsed / config.numCpu * 100.0;
+        
+        file << "CPU utilization: " << std::fixed << std::setprecision(2) 
+             << cpuUtilization << "%" << std::endl;
+        file << "Cores used: " << coresUsed << std::endl;
+        file << "Cores available: " << coresAvailable << std::endl;
+        file << std::endl;
+        
+        file << "Running processes:" << std::endl;
+        for (const auto& process : runningProcesses) {
+            file << process->name << "\t(" << process->creationTime 
+                 << ")\tCore: " << process->assignedCore << "\t"
+                 << process->currentInstruction << " / " 
+                 << process->totalInstructions << std::endl;
+        }
+        
+        file << std::endl << "Finished processes:" << std::endl;
+        for (const auto& process : finishedProcesses) {
+            file << process->name << "\t(" << process->creationTime 
+                 << ")\tFinished\t" << process->finishTime << "\t"
+                 << process->totalInstructions << " / " 
+                 << process->totalInstructions << std::endl;
+        }
+        
+        file.close();
+        std::cout << "Report generated: csopesy-log.txt" << std::endl;
+    }
+    
+    void shutdown() {
+        if (!schedulerRunning) return;
+        
         schedulerRunning = false;
-        testMode = false;
+        batchGenerationRunning = false;
         cv.notify_all();
         
         // Join all threads
@@ -163,261 +451,286 @@ public:
                 thread.join();
             }
         }
-        if (schedulerThread.joinable()) {
-            schedulerThread.join();
+        
+        if (batchGeneratorThread.joinable()) {
+            batchGeneratorThread.join();
         }
         
         coreThreads.clear();
-        std::cout << "Scheduler stopped." << std::endl;
+        initialized = false;
     }
     
-    void startTest() {
-        if (!schedulerRunning) {
-            std::cout << "Please initialize the scheduler first." << std::endl;
-            return;
-        }
-        
-        if (testMode) {
-            std::cout << "Test is already running." << std::endl;
-            return;
-        }
-        
-        testMode = true;
-        
-        // Start test thread that creates processes periodically  
-        schedulerThread = std::thread([this]() {
-            int processCounter = 1;
-            while (testMode && schedulerRunning) {
-                std::string processName = "process" + std::to_string(processCounter++);
-                addProcess(processName, 100);
-                std::this_thread::sleep_for(std::chrono::seconds(1));
-            }
-        });
-        
-        std::cout << "Scheduler test started." << std::endl;
+    ~CPUScheduler() {
+        shutdown();
     }
     
-    void stopTest() {
-        testMode = false;
-        std::cout << "Scheduler test stopped." << std::endl;
-    }
-    
-    void addProcess(const std::string& name, int instructions) {
-        auto process = std::make_shared<Process>(name, instructions);
-        
-        std::lock_guard<std::mutex> lock(queueMutex);
-        readyQueue.push(process);
-        cv.notify_one();
-    }
-    
-    void reportUtil() {
-        std::lock_guard<std::mutex> lock(queueMutex);
-        
-        std::cout << "------------------------------------" << std::endl;
-        std::cout << "Running processes:" << std::endl;
-        
-        for (const auto& process : runningProcesses) {
-            std::cout << process->name << "\t(" 
-                     << process->creationTimestamp << ")\tCore: " 
-                     << process->assignedCore << "\t" 
-                     << process->currentInstruction << " / " 
-                     << process->totalInstructions << std::endl;
-        }
-        
-        std::cout << std::endl << "Finished processes:" << std::endl;
-        for (const auto& process : finishedProcesses) {
-            std::cout << process->name << "\t(" 
-                     << process->creationTimestamp << ")\tFinished\t" 
-                     << process->totalInstructions << " / " 
-                     << process->totalInstructions << std::endl;
-        }
-        std::cout << "------------------------------------" << std::endl;
-    }
-    
-    std::shared_ptr<Process> getProcess(const std::string& name) {
-        std::lock_guard<std::mutex> lock(queueMutex);
-        
-        // Check running processes
-        for (const auto& process : runningProcesses) {
-            if (process->name == name) return process;
-        }
-        
-        // Check finished processes  
-        for (const auto& process : finishedProcesses) {
-            if (process->name == name) return process;
-        }
-        
-        return nullptr;
-    }
-    
-    ~ProcessScheduler() {
-        stop();
-    }
-};
-
-struct ScreenInfo {
-    std::string processName;
-    int currentLine;
-    int totalLines;
-    std::string creationTimestamp;
-};
-
-class Console {
-private: 
-    std::map<std::string, ScreenInfo> screens;
-    std::string activeScreenName;
-    ProcessScheduler scheduler;
-
-public:
-    void run();
-
 private:
-    void displayHeader();
-    std::string getCurrentTimestamp();
-    void drawScreen(const ScreenInfo& info);
-    void mainMenuLoop();
-    void screenLoop();
-    void handleMainCommand(const std::string& command);
-    void handleScreenCommand(const std::string& command);
+    bool loadConfig() {
+        std::ifstream file("config.txt");
+        if (!file.is_open()) {
+            // Create default config file
+            std::ofstream defaultFile("config.txt");
+            if (defaultFile.is_open()) {
+                defaultFile << "num-cpu 4\n";
+                defaultFile << "scheduler fcfs\n";
+                defaultFile << "quantum-cycles 5\n";
+                defaultFile << "batch-process-freq 1\n";
+                defaultFile << "min-ins 1000\n";
+                defaultFile << "max-ins 2000\n";
+                defaultFile << "delays-per-exec 0\n";
+                defaultFile.close();
+                std::cout << "Created default config.txt file." << std::endl;
+            }
+            file.open("config.txt");
+        }
+        
+        if (!file.is_open()) {
+            return false;
+        }
+        
+        std::string line;
+        while (std::getline(file, line)) {
+            std::istringstream iss(line);
+            std::string key, value;
+            if (iss >> key >> value) {
+                if (key == "num-cpu") {
+                    config.numCpu = std::stoi(value);
+                } else if (key == "scheduler") {
+                    config.scheduler = value;
+                } else if (key == "quantum-cycles") {
+                    config.quantumCycles = std::stoi(value);
+                } else if (key == "batch-process-freq") {
+                    config.batchProcessFreq = std::stoi(value);
+                } else if (key == "min-ins") {
+                    config.minIns = std::stoi(value);
+                } else if (key == "max-ins") {
+                    config.maxIns = std::stoi(value);
+                } else if (key == "delays-per-exec") {
+                    config.delaysPerExec = std::stoi(value);
+                }
+            }
+        }
+        
+        file.close();
+        return true;
+    }
+    
+    void coreWorker(int coreId) {
+        while (schedulerRunning) {
+            std::shared_ptr<Process> process = nullptr;
+            
+            {
+                std::unique_lock<std::mutex> lock(schedulerMutex);
+                cv.wait(lock, [this] { return !readyQueue.empty() || !schedulerRunning; });
+                
+                if (!schedulerRunning) break;
+                
+                if (!readyQueue.empty()) {
+                    process = readyQueue.front();
+                    readyQueue.pop();
+                    process->assignedCore = coreId;
+                    process->remainingQuantum = config.quantumCycles;
+                    runningProcesses.push_back(process);
+                }
+            }
+            
+            if (process) {
+                // Execute process
+                bool processRunning = true;
+                while (processRunning && schedulerRunning) {
+                    // Execute instruction
+                    bool stillRunning = process->executeNextInstruction(coreId);
+                    
+                    if (!stillRunning || process->isFinished) {
+                        processRunning = false;
+                    } else if (config.scheduler == "rr") {
+                        // Round-robin quantum check
+                        process->remainingQuantum--;
+                        if (process->remainingQuantum <= 0 && !process->isSleeping) {
+                            // Time slice expired, preempt
+                            {
+                                std::lock_guard<std::mutex> lock(schedulerMutex);
+                                readyQueue.push(process);
+                            }
+                            cv.notify_one();
+                            processRunning = false;
+                        }
+                    }
+                    
+                    // Simulate execution delay
+                    if (config.delaysPerExec > 0) {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(config.delaysPerExec * 10));
+                    } else {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    }
+                }
+                
+                // Remove from running processes
+                {
+                    std::lock_guard<std::mutex> lock(schedulerMutex);
+                    runningProcesses.erase(
+                        std::remove(runningProcesses.begin(), runningProcesses.end(), process),
+                        runningProcesses.end());
+                    
+                    if (process->isFinished) {
+                        finishedProcesses.push_back(process);
+                        process->assignedCore = -1;
+                    }
+                }
+            }
+        }
+    }
 };
 
-void Console::displayHeader() {
-    std::cout << "  ____ ____   ___  ____  _____ ______   __\n";
-    std::cout << " / ___/ ___| / _ \\|  _ \\| ____/ ___\\ \\ / /\n";
-    std::cout << "| |   \\___ \\| | | | |_) |  _| \\___ \\\\ V / \n";
-    std::cout << "| |___ ___) | |_| |  __/| |___ ___) || |  \n";
-    std::cout << " \\____|____/ \\___/|_|   |_____|____/ |_|  \n";
-    std::cout << "\nHello, Welcome to CSOPESY commandline!\n";
-    std::cout << "Type 'exit' to quit, 'clear' to clear the screen\n";
-}
-
-std::string Console::getCurrentTimestamp() {
-    auto now = std::chrono::system_clock::now();
-    std::time_t now_c = std::chrono::system_clock::to_time_t(now);
-    std::stringstream ss;
-    ss << std::put_time(std::localtime(&now_c), "%m/%d/%Y, %I:%M:%S %p");
-    return ss.str();
-}
-
-void Console::drawScreen(const ScreenInfo& info) {
-    system("cls");
-    std::cout << "------------------------------------------\n";
-    std::cout << "SCREEN: " << info.processName << "\n";
-    std::cout << "------------------------------------------\n";
+// Console implementation
+class Console {
+private:
+    CPUScheduler scheduler;
+    std::string currentScreen;
+    bool initialized = false;
     
-    // Get actual process info from scheduler
-    auto process = scheduler.getProcess(info.processName);
-    if (process) {
-        std::cout << "Process Name: " << process->name << "\n";
-        std::cout << "Current Line of Instruction: " << process->currentInstruction << "\n";
-        std::cout << "Total Line of Instruction: " << process->totalInstructions << "\n";
-        std::cout << "Timestamp: " << process->creationTimestamp << "\n";
-    } else {
-        std::cout << "Process Name: " << info.processName << "\n";
-        std::cout << "Current Line of Instruction: " << info.currentLine << "\n";
-        std::cout << "Total Line of Instruction: " << info.totalLines << "\n";
-        std::cout << "Timestamp: " << info.creationTimestamp << "\n";
+public:
+    void run() {
+        displayHeader();
+        mainLoop();
     }
     
-    std::cout << "------------------------------------------\n";
-    std::cout << "Type 'exit' to return to main menu.\n";
-}
-
-void Console::run() {
-    displayHeader();
-    while (true) {
-        if (activeScreenName.empty()) {
-            mainMenuLoop();
-        } else {
-            screenLoop();
-        }
+private:
+    void displayHeader() {
+        std::cout << "  ____ ____   ___  ____  _____ ______   __\n";
+        std::cout << " / ___/ ___| / _ \\|  _ \\| ____/ ___\\ \\ / /\n";
+        std::cout << "| |   \\___ \\| | | | |_) |  _| \\___ \\\\ V / \n";
+        std::cout << "| |___ ___) | |_| |  __/| |___ ___) || |  \n";
+        std::cout << " \\____|____/ \\___/|_|   |_____|____/ |_|  \n";
+        std::cout << "\nHello, Welcome to CSOPESY commandline!\n";
+        std::cout << "Type 'exit' to quit, 'clear' to clear the screen\n";
     }
-}
-
-void Console::mainMenuLoop() {
-    std::string command;
-    std::cout << ">> ";
-    std::getline(std::cin, command);
-    handleMainCommand(command);
-}
-
-void Console::screenLoop() {
-    std::string command;
-    std::cout << "[" << activeScreenName << "]>> ";
-    std::getline(std::cin, command);
-    handleScreenCommand(command);
-}
-
-void Console::handleMainCommand(const std::string& command) {
-    std::vector<std::string> validCommands = {"initialize", "screen", "scheduler-test", "scheduler-stop", "report-util", "clear", "exit"};
-
-    if (command.rfind("screen ", 0) == 0) {
-        std::string screen_command = command.substr(7);
-
-        if (screen_command.rfind("-r ", 0) == 0) {
-            std::string screen_name = screen_command.substr(3);
-            if (screens.count(screen_name)) {
-                activeScreenName = screen_name;
-                drawScreen(screens[activeScreenName]);
+    
+    void mainLoop() {
+        std::string input;
+        
+        while (true) {
+            if (currentScreen.empty()) {
+                std::cout << "root:\\> ";
             } else {
-                std::cout << "Screen '" << screen_name << "' not found.\n";
+                std::cout << currentScreen << ":\\> ";
             }
-        } else if (screen_command.rfind("-s ", 0) == 0) {
-            std::string screen_name = screen_command.substr(3);
-            if (screens.count(screen_name)) {
-                std::cout << "Screen '" << screen_name << "' already exists. Switching to it.\n";
+            
+            std::getline(std::cin, input);
+            
+            if (currentScreen.empty()) {
+                handleMainCommand(input);
             } else {
-                ScreenInfo newScreen;
-                newScreen.processName = screen_name;
-                newScreen.currentLine = 0;
-                newScreen.totalLines = 100;
-                newScreen.creationTimestamp = getCurrentTimestamp();
-                screens[screen_name] = newScreen;
-                
-                // Also add process to scheduler
-                scheduler.addProcess(screen_name, 100);
-                std::cout << "Created new screen: " << screen_name << "\n";
+                handleScreenCommand(input);
             }
-            activeScreenName = screen_name;
-            drawScreen(screens[activeScreenName]);
+        }
+    }
+    
+    void handleMainCommand(const std::string& command) {
+        std::istringstream iss(command);
+        std::string cmd;
+        iss >> cmd;
+        
+        if (cmd == "initialize") {
+            if (scheduler.initialize()) {
+                initialized = true;
+            }
+        } else if (cmd == "exit") {
+            scheduler.shutdown();
+            std::exit(0);
+        } else if (cmd == "clear") {
+            system("cls");
+            displayHeader();
+        } else if (!initialized && cmd != "exit") {
+            std::cout << "Please run 'initialize' first." << std::endl;
+        } else if (cmd == "screen") {
+            handleScreenCommand(command);
+        } else if (cmd == "scheduler-start") {
+            scheduler.startBatchGeneration();
+        } else if (cmd == "scheduler-stop") {
+            scheduler.stopBatchGeneration();
+        } else if (cmd == "report-util") {
+            scheduler.generateReport();
         } else {
-            std::cout << "Invalid 'screen' command. Use 'screen -r <name>' or 'screen -s <name>'.\n";
+            std::cout << "Command not recognized." << std::endl;
         }
-    } else if (command == "initialize") {
-        scheduler.initialize();
-    } else if (command == "scheduler-test") {
-        scheduler.startTest();
-    } else if (command == "scheduler-stop") {
-        scheduler.stopTest();
-    } else if (command == "report-util") {
-        scheduler.reportUtil();
-    } else if (command == "clear") {
-        system("cls");
-        displayHeader();
-    } else if (command == "exit") {
-        scheduler.stop();
-        std::exit(0);
-    } else {
-        std::cout << "Unrecognized command. Try again.\n";
     }
-}
-
-void Console::handleScreenCommand(const std::string& command) {
-    if (command == "exit") {
-        activeScreenName.clear();
-        system("cls");
-        displayHeader();
-    } else {
-        std::cout << "Command '" << command << "' executed within screen '" << activeScreenName << "'.\n";
-        if (screens.count(activeScreenName)) {
-            screens[activeScreenName].currentLine++;
-            if (screens[activeScreenName].currentLine > screens[activeScreenName].totalLines) {
-                screens[activeScreenName].currentLine = 1;
+    
+    void handleScreenCommand(const std::string& command) {
+        if (currentScreen.empty()) {
+            // Parse screen command from main menu
+            std::istringstream iss(command);
+            std::string screen, option, processName;
+            iss >> screen >> option >> processName;
+            
+            if (screen == "screen") {
+                if (option == "-s") {
+                    // Create new screen/process
+                    scheduler.addProcess(processName);
+                    currentScreen = processName;
+                    displayProcessScreen();
+                } else if (option == "-r") {
+                    // Resume existing screen
+                    auto process = scheduler.getProcess(processName);
+                    if (process) {
+                        currentScreen = processName;
+                        displayProcessScreen();
+                    } else {
+                        std::cout << "Process " << processName << " not found." << std::endl;
+                    }
+                } else if (option == "-ls") {
+                    scheduler.listProcesses();
+                } else {
+                    std::cout << "Invalid screen option. Use -s, -r, or -ls." << std::endl;
+                }
             }
-            drawScreen(screens[activeScreenName]);
+        } else {
+            // Handle commands within screen
+            if (command == "exit") {
+                currentScreen.clear();
+                system("cls");
+                displayHeader();
+            } else if (command == "process-smi") {
+                displayProcessInfo();
+            } else {
+                std::cout << "Command '" << command << "' not recognized in screen mode." << std::endl;
+            }
         }
     }
-}
+    
+    void displayProcessScreen() {
+        system("cls");
+        std::cout << "Process Screen: " << currentScreen << std::endl;
+        std::cout << "===============================================" << std::endl;
+        displayProcessInfo();
+        std::cout << "===============================================" << std::endl;
+        std::cout << "Type 'process-smi' for process info, 'exit' to return to main menu." << std::endl;
+    }
+    
+    void displayProcessInfo() {
+        auto process = scheduler.getProcess(currentScreen);
+        if (!process) {
+            std::cout << "Process " << currentScreen << " not found." << std::endl;
+            currentScreen.clear();
+            return;
+        }
+        
+        std::cout << "Process name: " << process->name << std::endl;
+        std::cout << "ID: " << process->pid << std::endl;
+        
+        if (process->isFinished) {
+            std::cout << "Finished!" << std::endl;
+        } else {
+            std::cout << "Current instruction line: " << process->currentInstruction << std::endl;
+            std::cout << "Lines of code: " << process->totalInstructions << std::endl;
+        }
+        
+        std::cout << std::endl << "Logs:" << std::endl;
+        for (const auto& log : process->printLogs) {
+            std::cout << log << std::endl;
+        }
+    }
+};
 
 int main() {
     Console console;

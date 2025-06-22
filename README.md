@@ -1,9 +1,22 @@
 # csopesy-mco1-gnps
 
-FCFS Scheduler Usage Instructions:
-    Start the emulator: Run the program
-    Initialize scheduler: Type initialize
-    Start test: Type scheduler-test (be careful, 1 process is made per second)
-    Monitor progress: Type report-util periodically
-    Stop test: Type scheduler-stop
-    Check files: Look for generated .txt files in your directory
+# Config Settings
+For Round-Robin scheduling:
+
+num-cpu 8
+scheduler rr
+quantum-cycles 5
+batch-process-freq 1
+min-ins 50
+max-ins 50
+delays-per-exec 0
+
+For stress testing
+
+num-cpu 8
+scheduler fcfs
+quantum-cycles 10
+batch-process-freq 1
+min-ins 100
+max-ins 500
+delays-per-exec 0
