@@ -1,11 +1,20 @@
 # csopesy-mco1-gnps
 
-How to Run
+## How to Run
 
-- edit config.txt
-- cd directory
-- mingw32-make
-- ./csopesy.exe
+```bash
+# 1. Edit the configuration file
+edit config.txt
+
+# 2. Navigate to the project directory
+cd directory
+
+# 3. Build the project using MinGW Make
+mingw32-make
+
+# 4. Run the executable
+./csopesy.exe
+```
 
 # Config Settings
 
