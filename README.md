@@ -3,9 +3,9 @@
 How to Run
 
 - edit config.txt
-  > cd directory
-  > mingw32-make
-  > ./csopesy.exe
+- cd directory
+- mingw32-make
+- ./csopesy.exe
 
 # Config Settings
 
