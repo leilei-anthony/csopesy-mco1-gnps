@@ -1,6 +1,14 @@
 # csopesy-mco1-gnps
 
+How to Run
+
+- edit config.txt
+  > cd directory
+  > mingw32-make
+  > ./csopesy.exe
+
 # Config Settings
+
 For Round-Robin scheduling:
 
 num-cpu 8
