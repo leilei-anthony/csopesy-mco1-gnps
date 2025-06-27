@@ -11,6 +11,8 @@ cd directory
 
 # 3. Build the project using MinGW Make
 mingw32-make
+# or
+make
 
 # 4. Run the executable
 ./csopesy.exe
