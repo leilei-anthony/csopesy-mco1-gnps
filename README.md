@@ -1,5 +1,11 @@
 # csopesy-mco1-gnps
 
+## CSOPESY - S14
+- Garganera, Aira Jin
+- Nograles, Nigel Roi
+- Pidlaoan, Atasha Dominique
+- Sityar, Lester Anthony Jr.
+
 ## How to Run
 
 ```bash
@@ -17,6 +23,9 @@ make
 # 4. Run the executable
 ./csopesy.exe
 ```
+
+## Entry Class File
+- src\main.cpp
 
 # Config Settings
 
