@@ -1,9 +1,11 @@
 #include "CPUScheduler.h"
-
+#include "MemoryManager.h"  // new addition
 #include <iostream>
 #include <fstream>
 #include <iomanip>
 #include <algorithm>
+
+
 
 CPUScheduler::~CPUScheduler() {
     shutdown();
@@ -20,6 +22,12 @@ bool CPUScheduler::initialize() {
         return false;
     }
     
+    memoryManager.init(             // new addition
+    config.getMaxOverallMem(),
+    config.getMemPerFrame(),
+    config.getMemPerProc()
+    );
+
     schedulerRunning = true;
     
     // Start CPU tick counter
@@ -292,8 +300,28 @@ void CPUScheduler::coreWorker(int coreId) {
                 process->remainingQuantum = config.getQuantumCycles();
                 runningProcesses.push_back(process);
             }
+
         }
+
+        // new addition [
+        if (process) {  
+            if (!memoryManager.allocate(process)) {
+                {
+                    std::lock_guard<std::mutex> lock(schedulerMutex);
+                    readyQueue.push(process);
+                    runningProcesses.erase(
+                        std::remove(runningProcesses.begin(), runningProcesses.end(), process),
+                        runningProcesses.end()
+                    );
+                }
+                cv.notify_one();
+                continue;
+            }
+        } else {
+            continue;  // if process is still nullptr somehow
+        }              // new addition 
         
+        // ] new addition 
         if (process) {
             bool processRunning = true;
             while (processRunning && schedulerRunning) {
@@ -347,6 +375,8 @@ void CPUScheduler::coreWorker(int coreId) {
                 if (process->isFinished) {
                     finishedProcesses.push_back(process);
                     process->assignedCore = -1;
+
+                    memoryManager.deallocate(process); // new addition
                 }
             }
         }

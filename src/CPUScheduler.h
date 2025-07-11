@@ -1,6 +1,7 @@
 #pragma once
 #include "Process.h"
 #include "Config.h"
+#include "MemoryManager.h" // new addition
 #include <queue>
 #include <vector>
 #include <thread>
@@ -51,7 +52,10 @@ private:
     std::atomic<int> cpuTicks{0};
     std::atomic<int> processCounter{1};
     
+    
     bool initialized = false;
+    
+    FirstFitMemoryAllocator memoryManager; // new addition
     
     // Private methods
     bool loadConfig();

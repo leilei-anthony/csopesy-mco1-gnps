@@ -87,6 +87,28 @@ bool Config::loadFromFile(const std::string& filename) {
                 } else {
                     hasErrors = true;
                 }
+            } else if (key == "max-overall-mem") {   // new addition
+                unsigned long val = std::stoul(value);
+                if (validateMaxOverallMem(val)) {
+                    maxOverallMem = val;
+                } else {
+                    hasErrors = true;
+                }
+
+            } else if (key == "mem-per-frame") {    // new addition
+                unsigned long val = std::stoul(value);
+                if (validateMemPerFrame(val)) {
+                    memPerFrame = val;
+                } else {
+                    hasErrors = true;
+                }
+            } else if (key == "mem-per-proc") {    // new addition
+                unsigned long val = std::stoul(value);
+                if (validateMemPerProc(val)) {
+                    memPerProc = val;
+                } else {
+                    hasErrors = true;
+                }
             } else {
                 std::cerr << "Warning: Unknown parameter '" << key << "' in config file" << std::endl;
             }
@@ -165,6 +187,18 @@ bool Config::validateDelaysPerExec(unsigned long value) const {
     return true;
 }
 
+bool Config::validateMaxOverallMem(unsigned long value) const {  // new addition
+    return value >= 1024 && value <= UINT32_MAX;
+}
+
+bool Config::validateMemPerFrame(unsigned long value) const {  // new addition
+    return value >= 1 && value <= 1024;
+}
+
+bool Config::validateMemPerProc(unsigned long value) const {   // new addition
+    return value >= 1 && value <= UINT32_MAX;
+}
+
 void Config::createDefaultFile(const std::string& filename) const {
     std::ofstream defaultFile(filename);
     if (defaultFile.is_open()) {
@@ -175,6 +209,10 @@ void Config::createDefaultFile(const std::string& filename) const {
         defaultFile << "min-ins 1000\n";
         defaultFile << "max-ins 2000\n";
         defaultFile << "delays-per-exec 0\n";
+        defaultFile << "max-overall-mem 16384\n";   // new addition
+        defaultFile << "mem-per-frame 16\n";    // new addition
+        defaultFile << "mem-per-proc 4096\n";   // new addition
+
         defaultFile.close();
         std::cout << "Created default " << filename << " file." << std::endl;
     }
