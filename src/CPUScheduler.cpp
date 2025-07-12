@@ -327,6 +327,13 @@ void CPUScheduler::coreWorker(int coreId) {
             while (processRunning && schedulerRunning) {
                 bool stillRunning = process->executeNextInstruction(coreId);
                 
+                // NEW
+                int newQuantumCycle = cpuTicks / config.getQuantumCycles();
+                if (newQuantumCycle > currentQuantumCycle) {
+                    currentQuantumCycle = newQuantumCycle;
+                    memoryManager.dumpStatusToFile(currentQuantumCycle);
+                }
+
                 if (!stillRunning || process->isFinished) {
                     processRunning = false;
                 } else if (config.getScheduler() == "rr") {
@@ -347,6 +354,7 @@ void CPUScheduler::coreWorker(int coreId) {
                         }
                         
                         if (shouldPreempt) {
+                            memoryManager.deallocate(process);
                             {
                                 std::lock_guard<std::mutex> lock(schedulerMutex);
                                 readyQueue.push(process);

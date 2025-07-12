@@ -162,6 +162,7 @@ void Console::clearScreen() {
 }
 
 std::vector<std::string> Console::parseCommand(const std::string& command) {
+    
     std::vector<std::string> tokens;
     std::istringstream iss(command);
     std::string token;

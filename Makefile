@@ -17,10 +17,12 @@ $(OBJDIR)/%.o: $(SRCDIR)/%.cpp | $(OBJDIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(OBJDIR):
-	mkdir -p $(OBJDIR)
+	if not exist $(OBJDIR) mkdir $(OBJDIR)
 
 clean:
-	rm -rf $(OBJDIR) $(TARGET)
+	del /Q $(OBJDIR)\*.o
+	rmdir /S /Q $(OBJDIR)
+	del /Q $(TARGET).exe
 
 install: $(TARGET)
 	cp $(TARGET) /usr/local/bin/

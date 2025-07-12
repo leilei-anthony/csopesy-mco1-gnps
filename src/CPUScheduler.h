@@ -44,6 +44,7 @@ private:
     std::vector<ProcessPtr> finishedProcesses;
     std::vector<std::thread> coreThreads;
     std::thread batchGeneratorThread;
+    int currentQuantumCycle = 0;
     
     std::mutex schedulerMutex;
     std::condition_variable cv;
