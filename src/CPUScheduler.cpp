@@ -300,52 +300,91 @@ void CPUScheduler::coreWorker(int coreId) {
                 process->remainingQuantum = config.getQuantumCycles();
                 runningProcesses.push_back(process);
             }
-
         }
 
-        // new addition [
+        // new addition
         if (process) {  
+            // Try to allocate memory for the process
             if (!memoryManager.allocate(process)) {
+                // Memory allocation failed, try to make space
+                bool spaceFreed = false;
+                
                 {
                     std::lock_guard<std::mutex> lock(schedulerMutex);
-                    readyQueue.push(process);
-                    runningProcesses.erase(
-                        std::remove(runningProcesses.begin(), runningProcesses.end(), process),
-                        runningProcesses.end()
-                    );
+                    
+                    // Look for processes in ready queue that have memory allocated
+                    // and deallocate the first one found (FIFO order)
+                    std::queue<ProcessPtr> tempQueue;
+                    
+                    while (!readyQueue.empty() && !spaceFreed) {
+                        ProcessPtr waitingProcess = readyQueue.front();
+                        readyQueue.pop();
+                        
+                        if (memoryManager.isAllocated(waitingProcess)) {
+                            // Deallocate memory from this waiting process
+                            memoryManager.deallocate(waitingProcess);
+                            spaceFreed = true;
+                        }
+                        
+                        tempQueue.push(waitingProcess);
+                    }
+                    
+                    // Put all processes back in ready queue
+                    while (!tempQueue.empty()) {
+                        readyQueue.push(tempQueue.front());
+                        tempQueue.pop();
+                    }
                 }
-                cv.notify_one();
-                continue;
+                
+                // Try to allocate again after freeing space
+                if (spaceFreed && !memoryManager.allocate(process)) {
+                    // Still couldn't allocate, put process back in ready queue
+                    {
+                        std::lock_guard<std::mutex> lock(schedulerMutex);
+                        readyQueue.push(process);
+                        runningProcesses.erase(
+                            std::remove(runningProcesses.begin(), runningProcesses.end(), process),
+                            runningProcesses.end()
+                        );
+                    }
+                    cv.notify_one();
+                    continue;
+                } else if (!spaceFreed) {
+                    // No space could be freed, put process back in ready queue
+                    {
+                        std::lock_guard<std::mutex> lock(schedulerMutex);
+                        readyQueue.push(process);
+                        runningProcesses.erase(
+                            std::remove(runningProcesses.begin(), runningProcesses.end(), process),
+                            runningProcesses.end()
+                        );
+                    }
+                    cv.notify_one();
+                    continue;
+                }
             }
         } else {
-            continue;  // if process is still nullptr somehow
-        }              // new addition 
+            continue;
+        }
         
-        // ] new addition 
         if (process) {
             bool processRunning = true;
             while (processRunning && schedulerRunning) {
                 bool stillRunning = process->executeNextInstruction(coreId);
                 
-                // NEW
+                // Memory dump logic
                 int newQuantumCycle = cpuTicks / config.getQuantumCycles();
                 if (newQuantumCycle > currentQuantumCycle) {
                     currentQuantumCycle = newQuantumCycle;
-                    memoryManager.dumpStatusToFile(currentQuantumCycle);
+                    quantumCycleCount++;
+                    memoryManager.dumpStatusToFile(quantumCycleCount);
                 }
 
                 if (!stillRunning || process->isFinished) {
                     processRunning = false;
                 } else if (config.getScheduler() == "rr") {
                     process->remainingQuantum--;
-                    // if (process->remainingQuantum <= 0 && !process->isSleeping) {
-                    //     {
-                    //         std::lock_guard<std::mutex> lock(schedulerMutex);
-                    //         readyQueue.push(process);
-                    //     }
-                    //     cv.notify_one();
-                    //     processRunning = false;
-                    // }
+                    
                     if (process->remainingQuantum <= 0 && !process->isSleeping) {
                         bool shouldPreempt = false;
                         {
@@ -354,7 +393,7 @@ void CPUScheduler::coreWorker(int coreId) {
                         }
                         
                         if (shouldPreempt) {
-                            memoryManager.deallocate(process);
+                            // It will keep its memory allocation while waiting in ready queue
                             {
                                 std::lock_guard<std::mutex> lock(schedulerMutex);
                                 readyQueue.push(process);
@@ -383,8 +422,8 @@ void CPUScheduler::coreWorker(int coreId) {
                 if (process->isFinished) {
                     finishedProcesses.push_back(process);
                     process->assignedCore = -1;
-
-                    memoryManager.deallocate(process); // new addition
+                    // Only deallocate memory when process is truly finished
+                    memoryManager.deallocate(process);
                 }
             }
         }

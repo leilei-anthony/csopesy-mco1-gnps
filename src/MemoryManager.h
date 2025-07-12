@@ -7,6 +7,7 @@
 #include <set>
 #include <chrono>
 #include <iomanip>
+#include <filesystem>
 
 class MemoryFrame {
 public:
@@ -42,16 +43,32 @@ public:
         return findFreeBlock(memPerProc / memPerFrame) != -1;
     }
 
-    bool allocate(const std::shared_ptr<Process>& proc) {
-        int neededFrames = memPerProc / memPerFrame;
-        int start = findFreeBlock(neededFrames);
-        if (start == -1) return false;
-
-        for (int i = start; i < start + neededFrames; ++i) {
-            memory[i].ownerPid = proc->pid;
+    bool isAllocated(const std::shared_ptr<Process>& proc) {
+    for (const auto& frame : memory) {
+        if (frame.ownerPid == proc->pid) {
+            return true;
         }
-        return true;
     }
+    return false;
+}
+
+    bool allocate(const std::shared_ptr<Process>& proc) {
+    // First check if this process already has memory allocated
+    for (const auto& frame : memory) {
+        if (frame.ownerPid == proc->pid) {
+            return true;  // Already allocated, no need to allocate again
+        }
+    }
+    
+    int neededFrames = memPerProc / memPerFrame;
+    int start = findFreeBlock(neededFrames);
+    if (start == -1) return false;
+
+    for (int i = start; i < start + neededFrames; ++i) {
+        memory[i].ownerPid = proc->pid;
+    }
+    return true;
+}
 
     void deallocate(const std::shared_ptr<Process>& proc) {
         for (auto& frame : memory) {
@@ -128,6 +145,7 @@ public:
 } */
 
 void dumpStatusToFile(int quantumCycle) {
+        std::filesystem::create_directories("output");
         std::ofstream file("output/memory_stamp_" + std::to_string(quantumCycle) + ".txt");
         if (!file.is_open()) return;
         
