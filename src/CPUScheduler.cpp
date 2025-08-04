@@ -171,8 +171,6 @@ bool CPUScheduler::checkExistingProcess(const std::string& name) {
 //     testLock.unlock();
 // }
 
-    schedulerMutex.unlock();
-
     std::lock_guard<std::mutex> lock(schedulerMutex);
     
     auto it = std::find_if(runningProcesses.begin(), runningProcesses.end(),
