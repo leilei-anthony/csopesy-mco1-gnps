@@ -90,8 +90,6 @@ void Console::handleScreenCommand(const std::string& command) {
                 return;
             }
 
-            std::cout << !scheduler.checkExistingProcess(processName);
-
             if (!scheduler.checkExistingProcess(processName)) {
                 std::cout << "here if";
                 currentScreen = processName;

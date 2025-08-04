@@ -161,6 +161,18 @@ ProcessPtr CPUScheduler::getAllProcess(const std::string& name) {
 }
 
 bool CPUScheduler::checkExistingProcess(const std::string& name) {
+
+// std::unique_lock<std::mutex> testLock(schedulerMutex, std::defer_lock);
+
+//     if (!testLock.try_lock()) {
+//     std::cout << "[DEBUG] schedulerMutex is already locked!" << std::endl;
+// } else {
+//     std::cout << "[DEBUG] schedulerMutex was free. Lock acquired." << std::endl;
+//     testLock.unlock();
+// }
+
+    schedulerMutex.unlock();
+
     std::lock_guard<std::mutex> lock(schedulerMutex);
     
     auto it = std::find_if(runningProcesses.begin(), runningProcesses.end(),
