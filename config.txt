@@ -3,7 +3,7 @@ scheduler "rr"
 quantum-cycles 5
 batch-process-freq 1
 min-ins 1000
-max-ins 2000
+max-ins 1000
 delays-per-exec 0
 max-overall-mem 16384
 mem-per-frame 16

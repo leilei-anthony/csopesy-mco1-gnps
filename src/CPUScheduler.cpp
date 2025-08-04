@@ -406,10 +406,18 @@ void CPUScheduler::coreWorker(int coreId) {
                     activeCpuTicks++;
                 }
                 bool stillRunning = process->executeNextInstruction(coreId);
-                
+                // std::cout << "CHECK1" << std::endl;
                 // Memory dump logic
                 int newQuantumCycle = cpuTicks / config.getQuantumCycles();
+            
+                int configquantumcycles = config.getQuantumCycles();
+                // std::cout << "newQuantumCycle: " << newQuantumCycle << std::endl;
+                // std::cout << "currentQuantumCycle: " << currentQuantumCycle << std::endl;
+                // std::cout << "cpuTicks: " << cpuTicks << std::endl;
+                // std::cout << "config quantum cycles: " << configquantumcycles << std::endl;
+
                 if (newQuantumCycle > currentQuantumCycle) {
+                //    std::cout << "INSIDE QUANTUM CYCLE" << std::endl;
                     currentQuantumCycle = newQuantumCycle;
                     quantumCycleCount++;
                     memoryManager.dumpStatusToFile(quantumCycleCount);

@@ -10,7 +10,7 @@
 
 Process::Process(const std::string& processName, int pid, int memorySize)
     : name(processName), pid(pid), memorySize(memorySize), totalInstructions(0), currentInstruction(0),
-      assignedCore(-1), isFinished(false), remainingQuantum(0), 
+      assignedCore(-1), isFinished(false), remainingQuantum(0),
       sleepCounter(0), isSleeping(false) {
     creationTime = getCurrentTimestamp();
 }
@@ -27,7 +27,7 @@ void Process::generateRandomInstructions(int minIns, int maxIns) {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> instrDis(minIns, maxIns);
-    std::uniform_int_distribution<> typeDis(0, 7); // include ACCESS_MEM
+    std::uniform_int_distribution<> typeDis(0, 7);
     std::uniform_int_distribution<> offsetDis(0, memorySize - 1);
 
     totalInstructions = instrDis(gen);
@@ -39,39 +39,39 @@ void Process::generateRandomInstructions(int minIns, int maxIns) {
         int type = typeDis(gen);
 
         switch (type) {
-            case 0: // PRINT
+            case 0:
                 instr.type = InstructionType::PRINT;
                 instr.params.emplace_back("Hello world from " + name + "!");
                 break;
-            case 1: // DECLARE
+            case 1:
                 instr.type = InstructionType::DECLARE;
                 instr.params.emplace_back("var" + std::to_string(i));
                 instr.params.emplace_back(std::to_string(gen() % 100));
                 break;
-            case 2: // ADD
+            case 2:
                 instr.type = InstructionType::ADD;
                 instr.params.emplace_back("result" + std::to_string(i));
                 instr.params.emplace_back("var1");
                 instr.params.emplace_back("var2");
                 break;
-            case 3: // SUBTRACT
+            case 3:
                 instr.type = InstructionType::SUBTRACT;
                 instr.params.emplace_back("result" + std::to_string(i));
                 instr.params.emplace_back("var1");
                 instr.params.emplace_back("var2");
                 break;
-            case 4: // SLEEP
+            case 4:
                 instr.type = InstructionType::SLEEP;
                 instr.sleepCycles = (gen() % 10) + 1;
                 break;
-            case 5: // FOR_START
+            case 5:
                 instr.type = InstructionType::FOR_START;
                 instr.forRepeats = (gen() % 5) + 1;
                 break;
-            case 6: // FOR_END
+            case 6:
                 instr.type = InstructionType::FOR_END;
                 break;
-            case 7: // ACCESS_MEM
+            case 7:
                 instr.type = InstructionType::ACCESS_MEM;
                 instr.params.emplace_back(std::to_string(offsetDis(gen)));
                 break;
@@ -100,17 +100,40 @@ bool Process::executeNextInstruction(int coreId) {
 
     const Instruction& instr = instructions[currentInstruction];
 
+    auto safeAccess = [&](uint16_t offset) -> bool {
+        if (memoryManager && offset < memorySize) {
+            uint16_t dummy;
+            std::string err;
+            if (!memoryManager->readMemory(pid, offset, dummy, err)) {
+                crashedDueToMemoryViolation = true;
+                memoryErrorDetails = err;
+                isFinished = true;
+                return false;
+            }
+        } else {
+            crashedDueToMemoryViolation = true;
+            memoryErrorDetails = "Accessed offset beyond allocated memory.";
+            isFinished = true;
+            return false;
+        }
+        return true;
+    };
+
     switch (instr.type) {
         case InstructionType::PRINT: {
             std::stringstream logEntry;
-            logEntry << "(" << getCurrentTimestamp() << ") Core:" << coreId 
+            logEntry << "(" << getCurrentTimestamp() << ") Core:" << coreId
                      << " \"" << instr.params[0] << "\"";
             printLogs.push_back(logEntry.str());
+
+            // Simulate accessing offset 0 for a print
+            if (!safeAccess(0)) return false;
             break;
         }
         case InstructionType::DECLARE:
             if (instr.params.size() >= 2 && canDeclareVariable(instr.params[0])) {
                 variables[instr.params[0]] = static_cast<uint16_t>(std::stoi(instr.params[1]));
+                if (!safeAccess(1)) return false;
             }
             break;
         case InstructionType::ADD:
@@ -118,6 +141,8 @@ bool Process::executeNextInstruction(int coreId) {
                 uint16_t val1 = getValue(instr.params[1]);
                 uint16_t val2 = getValue(instr.params[2]);
                 variables[instr.params[0]] = val1 + val2;
+
+                if (!safeAccess(2)) return false;
             }
             break;
         case InstructionType::SUBTRACT:
@@ -125,17 +150,21 @@ bool Process::executeNextInstruction(int coreId) {
                 uint16_t val1 = getValue(instr.params[1]);
                 uint16_t val2 = getValue(instr.params[2]);
                 variables[instr.params[0]] = val1 - val2;
+
+                if (!safeAccess(3)) return false;
             }
             break;
         case InstructionType::SLEEP:
             isSleeping = true;
             sleepCounter = instr.sleepCycles;
+            if (!safeAccess(4)) return false;
             break;
         case InstructionType::FOR_START:
             if (forLoopStack.size() < 3) {
                 forLoopStack.push_back(currentInstruction);
                 forLoopCounters.push_back(0);
             }
+            if (!safeAccess(5)) return false;
             break;
         case InstructionType::FOR_END:
             if (!forLoopStack.empty()) {
@@ -151,25 +180,12 @@ bool Process::executeNextInstruction(int coreId) {
                     forLoopCounters.pop_back();
                 }
             }
+            if (!safeAccess(6)) return false;
             break;
         case InstructionType::ACCESS_MEM:
-            if (instr.params.size() >= 1 && memoryManager) {
+            if (instr.params.size() >= 1) {
                 uint16_t offset = static_cast<uint16_t>(std::stoi(instr.params[0]));
-                if (offset < memorySize) {
-                    uint16_t dummy;
-                    std::string err;
-                    if (!memoryManager->readMemory(pid, offset, dummy, err)) {
-                        crashedDueToMemoryViolation = true;
-                        memoryErrorDetails = err;
-                        isFinished = true;
-                        return false;
-                    }
-                } else {
-                    crashedDueToMemoryViolation = true;
-                    memoryErrorDetails = "Accessed offset beyond allocated memory.";
-                    isFinished = true;
-                    return false;
-                }
+                if (!safeAccess(offset)) return false;
             }
             break;
     }

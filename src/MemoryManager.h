@@ -33,12 +33,12 @@ private:
     std::map<int, std::map<int, int>> pageTables; // pid -> {virtualPage -> frameId}
     std::deque<int> fifoQueue; // for FIFO page replacement
 
-    const int pageSize = 256; // Example page size, can be configurable
     std::string backingStoreFile = "csopesy-backing-store.txt";
 
 public:
 
     void init(int maxMemory, int frameSize, int procLimit);
+    int findContiguousFrames(int count);
     bool allocate(const std::shared_ptr<Process>& proc);
     void deallocate(const std::shared_ptr<Process>& proc);
     bool isAllocated(int pid) const;

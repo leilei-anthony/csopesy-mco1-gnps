@@ -1,7 +1,7 @@
 #pragma once
+#include "MemoryManager.h" // new addition
 #include "Process.h"
 #include "Config.h"
-#include "MemoryManager.h" // new addition
 #include <queue>
 #include <vector>
 #include <thread>
