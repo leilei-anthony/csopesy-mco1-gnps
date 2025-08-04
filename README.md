@@ -1,6 +1,7 @@
 # csopesy-mco1-gnps
 
 ## CSOPESY - S14
+
 - Garganera, Aira Jin
 - Nograles, Nigel Roi
 - Pidlaoan, Atasha Dominique
@@ -15,6 +16,9 @@ edit config.txt
 # 2. Navigate to the project directory
 cd directory
 
+# OPTIONAL
+mingw32-make clean
+
 # 3. Build the project using MinGW Make
 mingw32-make
 # or
@@ -25,6 +29,7 @@ make
 ```
 
 ## Entry Class File
+
 - src\main.cpp
 
 # Config Settings

@@ -20,6 +20,7 @@ private:
     void mainLoop();
     void handleMainCommand(const std::string& command);
     void handleScreenCommand(const std::string& command);
+    void handleVmstatCommand(); // new
     
     // Utility
     void clearScreen();

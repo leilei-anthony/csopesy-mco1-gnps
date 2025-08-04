@@ -245,4 +245,18 @@ private:
 public:
     int getMemPerFrame() const { return memPerFrame; }
     int getTotalMemory() const { return totalMemory; }
+    int getUsedMemory() const {
+        int used = 0;
+        for (const auto& frame : memory) {
+            if (frame.ownerPid != -1) used++;
+        }
+        return used * memPerFrame;
+    }
+    int getFreeMemory() const {
+        int free = 0;
+        for (const auto& frame : memory) {
+            if (frame.ownerPid == -1) free++;
+        }
+        return free * memPerFrame;
+    }
 };

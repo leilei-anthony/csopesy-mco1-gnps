@@ -63,7 +63,9 @@ void Console::handleMainCommand(const std::string& command) {
         scheduler.stopBatchGeneration();
     } else if (cmd == "report-util") {
         scheduler.generateReport();
-    } else {
+    } else if (cmd == "vmstat") {
+        scheduler.printVmstat();
+    }else {
         std::cout << "Command not recognized." << std::endl;
     }
 }
