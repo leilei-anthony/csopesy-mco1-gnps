@@ -25,7 +25,7 @@ bool CPUScheduler::initialize() {
     memoryManager.init(             // new addition
     config.getMaxOverallMem(),
     config.getMemPerFrame(),
-    config.getMemPerProc()
+    config.getMaxMemPerProc()
     );
 
     schedulerRunning = true;
@@ -75,15 +75,32 @@ void CPUScheduler::stopBatchGeneration() {
     std::cout << "Batch process generation stopped." << std::endl;
 }
 
-void CPUScheduler::addProcess(const std::string& name) {
+void CPUScheduler::addProcess(const std::string& name, int memSize) {
     if (!initialized) {
         std::cout << "Please initialize the scheduler first." << std::endl;
         return;
     }
-    
-    auto process = std::make_shared<Process>(name, processCounter++);
+
+    int actualMemSize = memSize;
+    if (memSize == -1) {
+        // For batch generation, roll random power of 2 between min and max
+        int minMem = config.getMinMemPerProc();
+        int maxMem = config.getMaxMemPerProc();
+        std::vector<int> powers;
+        for (int p = 6; p <= 16; ++p) {
+            int val = 1 << p;
+            if (val >= minMem && val <= maxMem) powers.push_back(val);
+        }
+        if (!powers.empty()) {
+            actualMemSize = powers[rand() % powers.size()];
+        } else {
+            actualMemSize = minMem;
+        }
+    }
+
+    auto process = std::make_shared<Process>(name, processCounter++, actualMemSize);
     process->generateRandomInstructions(config.getMinIns(), config.getMaxIns());
-    
+
     {
         std::lock_guard<std::mutex> lock(schedulerMutex);
         readyQueue.push(process);
@@ -269,9 +286,18 @@ void CPUScheduler::batchGenerator() {
     while (batchGenerationRunning && schedulerRunning) {
         if (static_cast<unsigned long>(cpuTicks - lastTick) >= config.getBatchProcessFreq()) {
             std::string processName = "p" + std::to_string(processCounter++);
-            auto process = std::make_shared<Process>(processName, processCounter - 1);
+            // Roll random power of 2 between min and max for memory size
+            int minMem = config.getMinMemPerProc();
+            int maxMem = config.getMaxMemPerProc();
+            std::vector<int> powers;
+            for (int p = 6; p <= 16; ++p) {
+                int val = 1 << p;
+                if (val >= minMem && val <= maxMem) powers.push_back(val);
+            }
+            int memSize = minMem;
+            if (!powers.empty()) memSize = powers[rand() % powers.size()];
+            auto process = std::make_shared<Process>(processName, processCounter - 1, memSize);
             process->generateRandomInstructions(config.getMinIns(), config.getMaxIns());
-            
             {
                 std::lock_guard<std::mutex> lock(schedulerMutex);
                 readyQueue.push(process);

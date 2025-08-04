@@ -14,7 +14,8 @@ private:
     unsigned long delaysPerExec = 0;
     unsigned long maxOverallMem = 16384;    // new addition
     unsigned long memPerFrame = 16;     // new addition
-    unsigned long memPerProc = 4096; // new addition
+    unsigned long minMemPerProc = 1024; // replaced memPerProc with minMemPerProc, must be power of 2 in [2^6, 2^16]
+    unsigned long maxMemPerProc = 4096; // new addition for maxMemPerProc, must be power of 2 in [2^6, 2^16]
 
     // Validation methods
     bool validateNumCpu(int value) const;
@@ -26,7 +27,9 @@ private:
     bool validateDelaysPerExec(unsigned long value) const;
     bool validateMaxOverallMem(unsigned long value) const; // new addition
     bool validateMemPerFrame(unsigned long value) const; // new addition
-    bool validateMemPerProc(unsigned long value) const; // new addition
+    // Must be power of 2 and in range [2^6, 2^16]
+    bool validateMinMemPerProc(unsigned long value) const; // new addition
+    bool validateMaxMemPerProc(unsigned long value) const; // new addition
 
     void createDefaultFile(const std::string& filename = "config.txt") const;
 
@@ -44,7 +47,8 @@ public:
     unsigned long getDelaysPerExec() const { return delaysPerExec; }
     unsigned long getMaxOverallMem() const { return maxOverallMem; } // new addition
     unsigned long getMemPerFrame() const { return memPerFrame; } // new addition
-    unsigned long getMemPerProc() const { return memPerProc; } // new addition
+    unsigned long getMinMemPerProc() const { return minMemPerProc; } // new addition
+    unsigned long getMaxMemPerProc() const { return maxMemPerProc; } // new addition
 
     // Additional validation checks
     bool isRoundRobin() const { return scheduler == "rr"; }

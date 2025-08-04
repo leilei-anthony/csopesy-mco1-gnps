@@ -20,7 +20,7 @@ public:
     void shutdown();
     
     // Process management
-    void addProcess(const std::string& name);
+    void addProcess(const std::string& name, int memSize = -1);
     ProcessPtr getProcess(const std::string& name);
     ProcessPtr getAllProcess(const std::string& name);
     bool checkExistingProcess(const std::string& name);

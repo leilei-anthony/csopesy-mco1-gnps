@@ -29,7 +29,8 @@ public:
     std::vector<int> forLoopStack;
     std::vector<int> forLoopCounters;
     
-    Process(const std::string& processName, int pid);
+    int memorySize; // bytes allocated to this process
+    Process(const std::string& processName, int pid, int memorySize);
     
     void generateRandomInstructions(int minIns, int maxIns);
     bool executeNextInstruction(int coreId);

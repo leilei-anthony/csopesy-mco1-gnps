@@ -78,17 +78,31 @@ void Console::handleScreenCommand(const std::string& command) {
         
         const std::string& option = tokens[1];
         
-        if (option == "-s" && tokens.size() >= 3) {
+        if (option == "-s" && tokens.size() >= 4) {
             const std::string& processName = tokens[2];
+            int memSize = std::stoi(tokens[3]);
+
+            std::cout << "Adding process: " << processName << " with memory size: " << memSize << std::endl;
+
+            // Validate memory size: power of 2 and in [64, 65536]
+            if (memSize < 64 || memSize > 65536 || (memSize & (memSize - 1)) != 0) {
+                std::cout << "invalid memory allocation" << std::endl;
+                return;
+            }
+
+            std::cout << !scheduler.checkExistingProcess(processName);
 
             if (!scheduler.checkExistingProcess(processName)) {
+                std::cout << "here if";
                 currentScreen = processName;
                 displayProcessScreen();
                 return;
             } else {
-            scheduler.addProcess(processName);
-            currentScreen = processName;
-            displayProcessScreen();
+                std::cout << "here else";
+                scheduler.addProcess(processName, memSize);
+                std::cout << "Process " << processName << " added with memory size: " << memSize << " bytes." << std::endl;
+                currentScreen = processName;
+                displayProcessScreen();
             }
 
         } else if (option == "-r" && tokens.size() >= 3) {

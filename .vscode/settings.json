@@ -68,6 +68,8 @@
 		"fstream": "cpp",
 		"queue": "cpp",
 		"random": "cpp",
-		"set": "cpp"
+		"set": "cpp",
+		"filesystem": "cpp",
+		"list": "cpp"
 	}
 }

@@ -102,10 +102,17 @@ bool Config::loadFromFile(const std::string& filename) {
                 } else {
                     hasErrors = true;
                 }
-            } else if (key == "mem-per-proc") {    // new addition
+            } else if (key == "min-mem-per-proc") {    // new addition
                 unsigned long val = std::stoul(value);
-                if (validateMemPerProc(val)) {
-                    memPerProc = val;
+                if (validateMinMemPerProc(val)) {
+                    minMemPerProc = val;
+                } else {
+                    hasErrors = true;
+                }
+            } else if (key == "max-mem-per-proc") {    // new addition
+                unsigned long val = std::stoul(value);
+                if (validateMaxMemPerProc(val)) {
+                    maxMemPerProc = val;
                 } else {
                     hasErrors = true;
                 }
@@ -120,6 +127,11 @@ bool Config::loadFromFile(const std::string& filename) {
     // Validate min-ins <= max-ins
     if (minIns > maxIns) {
         std::cerr << "Error: min-ins (" << minIns << ") cannot be greater than max-ins (" << maxIns << ")" << std::endl;
+        hasErrors = true;
+    }
+
+    if (minMemPerProc > maxMemPerProc) {
+        std::cerr << "Error: min-mem-per-proc (" << minMemPerProc << ") cannot be greater than max-mem-per-proc (" << maxMemPerProc << ")" << std::endl;
         hasErrors = true;
     }
     
@@ -195,8 +207,30 @@ bool Config::validateMemPerFrame(unsigned long value) const {  // new addition
     return value >= 1 && value <= 1024;
 }
 
-bool Config::validateMemPerProc(unsigned long value) const {   // new addition
-    return value >= 1 && value <= UINT32_MAX;
+
+// Checks if value is a power of 2 and within [2^6, 2^16]
+bool Config::validateMinMemPerProc(unsigned long value) const {
+    if (value < 64 || value > 65536) {
+        std::cerr << "Error: min-mem-per-proc must be in range [2^6, 2^16]. Got: " << value << std::endl;
+        return false;
+    }
+    if ((value & (value - 1)) != 0) {
+        std::cerr << "Error: min-mem-per-proc must be a power of 2. Got: " << value << std::endl;
+        return false;
+    }
+    return true;
+}
+
+bool Config::validateMaxMemPerProc(unsigned long value) const {
+    if (value < 64 || value > 65536) {
+        std::cerr << "Error: max-mem-per-proc must be in range [2^6, 2^16]. Got: " << value << std::endl;
+        return false;
+    }
+    if ((value & (value - 1)) != 0) {
+        std::cerr << "Error: max-mem-per-proc must be a power of 2. Got: " << value << std::endl;
+        return false;
+    }
+    return true;
 }
 
 void Config::createDefaultFile(const std::string& filename) const {
@@ -211,7 +245,8 @@ void Config::createDefaultFile(const std::string& filename) const {
         defaultFile << "delays-per-exec 0\n";
         defaultFile << "max-overall-mem 16384\n";   // new addition
         defaultFile << "mem-per-frame 16\n";    // new addition
-        defaultFile << "mem-per-proc 4096\n";   // new addition
+        defaultFile << "min-mem-per-proc 1024\n"; // new addition
+        defaultFile << "max-mem-per-proc 4096\n"; // new addition
 
         defaultFile.close();
         std::cout << "Created default " << filename << " file." << std::endl;

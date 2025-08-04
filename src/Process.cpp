@@ -6,11 +6,10 @@
 #include <random>
 #include <algorithm>
 
-Process::Process(const std::string& processName, int pid) 
-    : name(processName), pid(pid), totalInstructions(0), currentInstruction(0),
+Process::Process(const std::string& processName, int pid, int memorySize)
+    : name(processName), pid(pid), memorySize(memorySize), totalInstructions(0), currentInstruction(0),
       assignedCore(-1), isFinished(false), remainingQuantum(0), 
       sleepCounter(0), isSleeping(false) {
-    
     creationTime = getCurrentTimestamp();
 }
 

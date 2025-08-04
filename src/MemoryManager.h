@@ -8,6 +8,7 @@
 #include <chrono>
 #include <iomanip>
 #include <filesystem>
+#include <sstream>
 
 class MemoryFrame {
 public:
@@ -22,15 +23,13 @@ class FirstFitMemoryAllocator {
 private:
     std::vector<MemoryFrame> memory;
     int memPerFrame;
-    int memPerProc;
     int totalFrames;
     int totalMemory;
 
 public:
-    void init(int maxMemory, int frameSize, int procLimit) {
+    void init(int maxMemory, int frameSize, int /*procLimit*/) {
         totalMemory = maxMemory;
         memPerFrame = frameSize;
-        memPerProc = procLimit;
         totalFrames = totalMemory / memPerFrame;
 
         memory.clear();
@@ -39,8 +38,9 @@ public:
         }
     }
 
-    bool canFitProcess() {
-        return findFreeBlock(memPerProc / memPerFrame) != -1;
+    bool canFitProcess(const std::shared_ptr<Process>& proc) {
+        int neededFrames = proc->memorySize / memPerFrame;
+        return findFreeBlock(neededFrames) != -1;
     }
 
     bool isAllocated(const std::shared_ptr<Process>& proc) {
@@ -53,22 +53,23 @@ public:
 }
 
     bool allocate(const std::shared_ptr<Process>& proc) {
-    // First check if this process already has memory allocated
-    for (const auto& frame : memory) {
-        if (frame.ownerPid == proc->pid) {
-            return true;  // Already allocated, no need to allocate again
+        // First check if this process already has memory allocated
+        for (const auto& frame : memory) {
+            if (frame.ownerPid == proc->pid) {
+                return true;  // Already allocated, no need to allocate again
+            }
         }
-    }
-    
-    int neededFrames = memPerProc / memPerFrame;
-    int start = findFreeBlock(neededFrames);
-    if (start == -1) return false;
 
-    for (int i = start; i < start + neededFrames; ++i) {
-        memory[i].ownerPid = proc->pid;
+        int neededFrames = proc->memorySize / memPerFrame;
+        if (neededFrames == 0) neededFrames = 1; // Always allocate at least 1 frame
+        int start = findFreeBlock(neededFrames);
+        if (start == -1) return false;
+
+        for (int i = start; i < start + neededFrames; ++i) {
+            memory[i].ownerPid = proc->pid;
+        }
+        return true;
     }
-    return true;
-}
 
     void deallocate(const std::shared_ptr<Process>& proc) {
         for (auto& frame : memory) {
@@ -243,6 +244,5 @@ private:
 
 public:
     int getMemPerFrame() const { return memPerFrame; }
-    int getMemPerProc() const { return memPerProc; }
     int getTotalMemory() const { return totalMemory; }
 };
