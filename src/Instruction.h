@@ -9,7 +9,9 @@ enum class InstructionType {
     SUBTRACT,
     SLEEP,
     FOR_START,
-    FOR_END
+    FOR_END,
+    READ,
+    WRITE
 };
 
 struct Instruction {

@@ -25,6 +25,9 @@ public:
     ProcessPtr getAllProcess(const std::string& name);
     bool checkExistingProcess(const std::string& name);
 
+    // new
+    bool addProcessWithInstructions(const std::string& name, int memSize, const std::string& instructions);
+
     // Batch processing
     void startBatchGeneration();
     void stopBatchGeneration();

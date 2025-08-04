@@ -492,7 +492,36 @@ void CPUScheduler::printVmstat() const {
     std::cout << "\n======================\n";
 }
 
+bool CPUScheduler::addProcessWithInstructions(const std::string& name, int memSize, const std::string& instructions) {
+    if (!initialized) {
+        std::cout << "Please initialize the scheduler first." << std::endl;
+        return false;
+    }
 
+    // Check if process already exists
+    if (!checkExistingProcess(name)) {
+        std::cout << "Process " << name << " already exists." << std::endl;
+        return false;
+    }
+    
+    // Create new process with specified memory size
+    auto process = std::make_shared<Process>(name, processCounter++, memSize);
+    
+    // Parse and set custom instructions
+    if (!process->parseUserInstructions(instructions)) {
+        std::cout << "Error parsing instructions for process " << name << std::endl;
+        return false;
+    }
+    
+    // Add to ready queue
+    {
+        std::lock_guard<std::mutex> lock(schedulerMutex);
+        readyQueue.push(process);
+    }
+    cv.notify_one();
+    
+    return true;
+}
 
 double CPUScheduler::getCpuUtilization() const {
     return static_cast<double>(runningProcesses.size()) / config.getNumCpu() * 100.0;

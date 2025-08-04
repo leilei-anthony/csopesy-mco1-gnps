@@ -116,8 +116,57 @@ void Console::handleScreenCommand(const std::string& command) {
             }
         } else if (option == "-ls") {
             scheduler.listProcesses();
-        } else {
-            std::cout << "Invalid screen option. Use -s, -r, or -ls." << std::endl;
+        } else if (option == "-c" && tokens.size() >= 4) {
+            const std::string& processName = tokens[2];
+            int memSize = std::stoi(tokens[3]);
+            
+            // Find the start and end of the instruction string (within quotes)
+            size_t quoteStart = command.find("\"");
+            size_t quoteEnd = command.rfind("\"");
+            
+            if (quoteStart == std::string::npos || quoteEnd == std::string::npos || quoteStart == quoteEnd) {
+                std::cout << "invalid command: instructions must be enclosed in quotes" << std::endl;
+                return;
+            }
+            
+            std::string instructions = command.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
+
+            if (instructions.empty() || instructions.back() != ';') {
+                std::cout << "invalid command: instruction must end with a semicolon" << std::endl;
+                return;
+            }
+
+            // Count number of instructions (semicolon separated)
+            size_t count = std::count(instructions.begin(), instructions.end(), ';');
+            if (count < 1 || count > 50) {
+                std::cout << "invalid command: must contain 1–50 instructions" << std::endl;
+                return;
+            }
+
+            // Validate memory size: power of 2 and in [64, 65536]
+            if (memSize < 64 || memSize > 65536 || (memSize & (memSize - 1)) != 0) {
+                std::cout << "invalid memory allocation" << std::endl;
+                return;
+            }
+
+            // Check if process already exists
+            if (!scheduler.checkExistingProcess(processName)) {
+                std::cout << "Process " << processName << " already exists." << std::endl;
+                currentScreen = processName;
+                displayProcessScreen();
+                return;
+            }
+
+            // Add process with custom instructions
+            if (scheduler.addProcessWithInstructions(processName, memSize, instructions)) {
+                std::cout << "Process " << processName << " created with custom instructions." << std::endl;
+                currentScreen = processName;
+                displayProcessScreen();
+            } else {
+                std::cout << "Failed to create process " << processName << " with custom instructions." << std::endl;
+            }
+        }   else {
+            std::cout << "Invalid screen option. Use -s, -r, -c, or -ls." << std::endl;
         }
     } else {
         if (command == "exit") {
