@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <memory> 
 
-
 CPUScheduler::~CPUScheduler() {
     shutdown();
 }
@@ -60,6 +59,7 @@ void CPUScheduler::startBatchGeneration() {
     batchGenerationRunning = true;
     batchGeneratorThread = std::thread(&CPUScheduler::batchGenerator, this);
     std::cout << "Batch process generation started." << std::endl;
+    std::cout << cpuTicks << " CPU ticks accumulated." << std::endl;
 }
 
 void CPUScheduler::stopBatchGeneration() {
@@ -286,8 +286,7 @@ void CPUScheduler::shutdown() {
 
 void CPUScheduler::tickCounter() {
     while (schedulerRunning) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        cpuTicks++;
+        cpuTicks += config.getNumCpu();
     }
 }
 
@@ -322,24 +321,19 @@ void CPUScheduler::batchGenerator() {
 void CPUScheduler::coreWorker(int coreId) {
     while (schedulerRunning) {
         ProcessPtr process = nullptr;
-        
         {
             std::unique_lock<std::mutex> lock(schedulerMutex);
             cv.wait(lock, [this] { return !readyQueue.empty() || !schedulerRunning; });
-            
             if (!schedulerRunning) break;
-            
             if (!readyQueue.empty()) {
                 process = readyQueue.front();
                 readyQueue.pop();    
                 process->assignedCore = coreId;
                 process->remainingQuantum = config.getQuantumCycles();
                 runningProcesses.push_back(process);
-            }
+            } 
         }
-
-        // new addition
-        if (process) {  
+        if (process) {
             // Try to allocate memory for the process
             if (!memoryManager.allocate(process)) {
                 // Memory allocation failed, try to make space
@@ -406,6 +400,11 @@ void CPUScheduler::coreWorker(int coreId) {
         if (process) {
             bool processRunning = true;
             while (processRunning && schedulerRunning) {
+                // Mark as active tick
+                {
+                    std::lock_guard<std::mutex> lock(schedulerMutex);
+                    activeCpuTicks++;
+                }
                 bool stillRunning = process->executeNextInstruction(coreId);
                 
                 // Memory dump logic
@@ -447,7 +446,7 @@ void CPUScheduler::coreWorker(int coreId) {
                 } else {
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 }
-            }
+            } 
             
             {
                 std::lock_guard<std::mutex> lock(schedulerMutex);
@@ -465,6 +464,35 @@ void CPUScheduler::coreWorker(int coreId) {
         }
     }
 }
+
+
+void CPUScheduler::printVmstat() const {
+    std::lock_guard<std::mutex> lock(schedulerMutex);
+
+    // Snapshot values to avoid inconsistencies during computation
+    const auto totalMem   = memoryManager.getTotalMemory();
+    const auto usedMem    = memoryManager.getUsedMemory();
+    const auto freeMem    = memoryManager.getFreeMemory();
+    const auto totalTicks = cpuTicks.load();
+    const auto active     = activeCpuTicks.load();
+    const auto idle       = totalTicks - active;
+
+    std::cout << "\n=== VMSTAT REPORT ===\n\n";
+    std::cout << std::left << std::setw(20) << "Total memory:"      << totalMem << " bytes\n";
+    std::cout << std::left << std::setw(20) << "Used memory:"       << usedMem  << " bytes\n";
+    std::cout << std::left << std::setw(20) << "Free memory:"       << freeMem  << " bytes\n\n";
+
+    std::cout << std::left << std::setw(20) << "Idle CPU ticks:"    << idle     << "\n";
+    std::cout << std::left << std::setw(20) << "Active CPU ticks:"  << active   << "\n";
+    std::cout << std::left << std::setw(20) << "Total CPU ticks:"   << totalTicks << "\n\n";
+
+    std::cout << std::left << std::setw(20) << "Num paged in:"      << "0 (not implemented)\n";
+    std::cout << std::left << std::setw(20) << "Num paged out:"     << "0 (not implemented)\n";
+
+    std::cout << "\n======================\n";
+}
+
+
 
 double CPUScheduler::getCpuUtilization() const {
     return static_cast<double>(runningProcesses.size()) / config.getNumCpu() * 100.0;

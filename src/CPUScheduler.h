@@ -32,6 +32,7 @@ public:
     // Reporting
     void listProcesses();
     void generateReport();
+    void printVmstat() const; // vmstat command
     
     // Getters
     bool isInitialized() const { return initialized; }
@@ -46,14 +47,17 @@ private:
     std::thread batchGeneratorThread;
     int currentQuantumCycle = 0;
     int quantumCycleCount = 0;
+
+    mutable std::mutex schedulerMutex;
     
-    std::mutex schedulerMutex;
     std::condition_variable cv;
     std::atomic<bool> schedulerRunning{false};
     std::atomic<bool> batchGenerationRunning{false};
-    std::atomic<int> cpuTicks{0};
-    std::atomic<int> processCounter{1};
-    
+    std::atomic<uint64_t> cpuTicks{0};
+    std::atomic<uint64_t> processCounter{1};
+    std::atomic<uint64_t> idleCpuTicks{0};
+    std::atomic<uint64_t> activeCpuTicks{0};
+
     
     bool initialized = false;
     
