@@ -4,7 +4,7 @@
 #include <fstream>
 #include <iomanip>
 #include <algorithm>
-
+#include <memory> 
 
 
 CPUScheduler::~CPUScheduler() {
