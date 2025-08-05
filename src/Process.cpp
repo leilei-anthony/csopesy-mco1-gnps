@@ -10,7 +10,7 @@
 Process::Process(const std::string& processName, int pid, int memorySize)
     : name(processName), pid(pid), memorySize(memorySize), totalInstructions(0), currentInstruction(0),
       assignedCore(-1), isFinished(false), remainingQuantum(0), 
-      sleepCounter(0), isSleeping(false), maxVariables(32) {
+      sleepCounter(0), isSleeping(false) {
     creationTime = getCurrentTimestamp();
     // Initialize memory space (simulated)
     memory.resize(memorySize, 0);
@@ -275,8 +275,8 @@ bool Process::executeNextInstruction(int coreId) {
                 break;
             case InstructionType::READ:
                 if (instr.params.size() >= 2) {
-                    if (variables.size() >= maxVariables) {
-                        // Ignore instruction if variable limit reached
+                    if (variables.size() >= maxVariables && variables.find(instr.params[0]) == variables.end()) {
+                        // Symbol table full and variable does not exist: ignore
                         break;
                     }
                     uint32_t address = parseHexAddress(instr.params[1]);

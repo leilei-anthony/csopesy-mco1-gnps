@@ -23,12 +23,12 @@ void FirstFitMemoryAllocator::init(int maxMemory, int frameSize, int /*procLimit
 
 std::vector<int> FirstFitMemoryAllocator::findAnyFreeFrames(int count) {
     std::vector<int> freeFrames;
-    for (int i = 0; i < totalFrames && freeFrames.size() < count; ++i) {
+    for (int i = 0; i < totalFrames && freeFrames.size() < static_cast<size_t>(count); ++i) {
         if (memory[i].ownerPid == -1) {
             freeFrames.push_back(i);
         }
     }
-    return (freeFrames.size() == count) ? freeFrames : std::vector<int>{}; // Return empty if not enough
+    return (static_cast<int>(freeFrames.size()) == count) ? freeFrames : std::vector<int>{}; // Return empty if not enough
 }
 
 bool FirstFitMemoryAllocator::allocate(const std::shared_ptr<Process>& proc) {
@@ -200,7 +200,6 @@ void FirstFitMemoryAllocator::dumpStatusToFile(int quantumCycle) const {
 
 bool FirstFitMemoryAllocator::writeMemory(int pid, uint16_t address, uint16_t value, std::string& errOut) {
     int page = address / memPerFrame;
-    int offset = address % memPerFrame;
     int frameId = ensurePageMapped(pid, page, errOut);
     if (frameId == -1) return false;
 
@@ -214,7 +213,6 @@ bool FirstFitMemoryAllocator::writeMemory(int pid, uint16_t address, uint16_t va
 
 bool FirstFitMemoryAllocator::readMemory(int pid, uint16_t address, uint16_t& outValue, std::string& errOut) {
     int page = address / memPerFrame;
-    int offset = address % memPerFrame;
     int frameId = ensurePageMapped(pid, page, errOut);
     if (frameId == -1) return false;
 
@@ -281,7 +279,7 @@ void FirstFitMemoryAllocator::markAccessViolation(std::string& errOut, uint16_t 
     errOut = ss.str();
 }
 
-bool FirstFitMemoryAllocator::isValidAddress(uint16_t addr) {
+bool FirstFitMemoryAllocator::isValidAddress(uint32_t addr) {
     return addr < 65536;
 }
 

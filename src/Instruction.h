@@ -12,7 +12,6 @@ enum class InstructionType {
     SLEEP,
     FOR_START,
     FOR_END,
-    ACCESS_MEM  // NEW: Simulated memory access instruction
 };
 
 struct Instruction {
@@ -20,7 +19,7 @@ struct Instruction {
     std::vector<std::string> params;
     int sleepCycles = 0;
     int forRepeats = 0;
-    int memoryAddress = -1;  // NEW: Address to access for ACCESS_MEM
+    int memoryAddress = -1; 
 
     Instruction() = default;
     Instruction(InstructionType t) : type(t) {}

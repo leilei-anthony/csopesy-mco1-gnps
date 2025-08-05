@@ -51,7 +51,7 @@ public:
     int ensurePageMapped(int pid, int virtualPage, std::string& errOut);
     int findFreeFrame();
     void markAccessViolation(std::string& errOut, uint16_t badAddr);
-    bool isValidAddress(uint16_t addr);
+    bool isValidAddress(uint32_t addr);
 
     int getPageIns() const;
     int getPageOuts() const;
