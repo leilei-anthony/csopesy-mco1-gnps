@@ -60,7 +60,7 @@ void CPUScheduler::startBatchGeneration() {
     batchGenerationRunning = true;
     batchGeneratorThread = std::thread(&CPUScheduler::batchGenerator, this);
     std::cout << "Batch process generation started." << std::endl;
-    std::cout << cpuTicks << " CPU ticks accumulated." << std::endl;
+    // std::cout << cpuTicks << " CPU ticks accumulated." << std::endl;
 }
 
 void CPUScheduler::stopBatchGeneration() {
@@ -122,12 +122,7 @@ ProcessPtr CPUScheduler::getProcess(const std::string& name) {
         [&name](const ProcessPtr& process) { return process->name == name; });
     if (it != runningProcesses.end()) return *it;
     
-    /*
-    // Check finished processes
-    it = std::find_if(finishedProcesses.begin(), finishedProcesses.end(),
-        [&name](const ProcessPtr& process) { return process->name == name; });
-    if (it != finishedProcesses.end()) return *it;
-    */
+
 
     // Check ready queue
     std::queue<ProcessPtr> tempQueue = readyQueue;
@@ -197,14 +192,6 @@ ProcessPtr CPUScheduler::getProcessByPID(int pid) {
 
 bool CPUScheduler::checkExistingProcess(const std::string& name) {
 
-// std::unique_lock<std::mutex> testLock(schedulerMutex, std::defer_lock);
-
-//     if (!testLock.try_lock()) {
-//     std::cout << "[DEBUG] schedulerMutex is already locked!" << std::endl;
-// } else {
-//     std::cout << "[DEBUG] schedulerMutex was free. Lock acquired." << std::endl;
-//     testLock.unlock();
-// }
 
     std::lock_guard<std::mutex> lock(schedulerMutex);
     
@@ -212,12 +199,6 @@ bool CPUScheduler::checkExistingProcess(const std::string& name) {
         [&name](const ProcessPtr& process) { return process->name == name; });
     if (it != runningProcesses.end()) return false;
     
-    /*
-    // Check finished processes
-    it = std::find_if(finishedProcesses.begin(), finishedProcesses.end(),
-        [&name](const ProcessPtr& process) { return process->name == name; });
-    if (it != finishedProcesses.end()) return false;
-    */
 
     std::queue<ProcessPtr> tempQueue = readyQueue;
     while (!tempQueue.empty()) {
@@ -496,6 +477,8 @@ std::vector<ProcessPtr> CPUScheduler::listAllProcesses() {
 
 
 void CPUScheduler::printProcessSMI() {
+    std::lock_guard<std::mutex> lock(schedulerMutex);
+    
     std::cout << "+-----------------------------------------------------------------------------+\n";
     std::cout << "|                          Process Memory Management                          |\n";
     std::cout << "+-------------------------------+----------------------+----------------------+\n";
@@ -504,16 +487,106 @@ void CPUScheduler::printProcessSMI() {
     size_t usedMem = memoryManager.getUsedMemory();         // in bytes
     size_t freeMem = totalMem - usedMem;
 
-    std::cout << "| Total Memory: " << std::setw(12) << totalMem
-              << " B | Used Memory: " << std::setw(12) << usedMem
-              << " B | Free Memory: " << std::setw(12) << freeMem << " B |\n";
+    std::cout << "| Total Memory: " << std::setw(8) << totalMem
+              << " B | Used Memory: " << std::setw(8) << usedMem
+              << " B | Free Memory: " << std::setw(8) << freeMem << " B |\n";
 
     std::cout << "+-------------------------------+----------------------+----------------------+\n";
-    std::cout << "| PID  | Process Name   | Pages | Mem Usage (B) | Status    | Start Time |\n";
-    std::cout << "|------|----------------|-------|----------------|-----------|------------|\n";
+    std::cout << "| PID  | Process Name   | Pages | Mem Usage (B) | Status    | Start Time     |\n";
+    std::cout << "|------|----------------|-------|---------------|-----------|----------------|\n";
 
-    //  list of processes and memory occupied
+    // Helper lambda to calculate pages for a process
+    auto calculatePages = [this](int memSize) -> int {
+        int frameSize = memoryManager.getMemPerFrame();
+        return (memSize + frameSize - 1) / frameSize;
+    };
 
+    // Helper lambda to format process row
+    auto printProcessRow = [&](const ProcessPtr& process, const std::string& status) {
+        int pages = calculatePages(process->memorySize);
+        bool isAllocated = memoryManager.isAllocated(process);
+        int actualMemUsage = isAllocated ? process->memorySize : 0;
+        
+        std::cout << "| " << std::setw(4) << process->pid 
+                  << " | " << std::setw(14) << std::left << process->name 
+                  << " | " << std::setw(5) << std::right << pages
+                  << " | " << std::setw(13) << actualMemUsage
+                  << " | " << std::setw(9) << std::left << status
+                  << " | " << std::setw(14) << process->creationTime << " |\n";
+    };
+
+    // Count processes by status
+    int runningCount = 0, waitingCount = 0, finishedCount = 0;
+    int totalMemAllocated = 0;
+
+    // Print running processes
+    for (const auto& process : runningProcesses) {
+        std::string status = "Running";
+        if (memoryManager.isAllocated(process)) {
+            status += "*";  // * indicates process has memory allocated
+            totalMemAllocated += process->memorySize;
+        }
+        printProcessRow(process, status);
+        runningCount++;
+    }
+
+    // Print processes in ready queue
+    std::queue<ProcessPtr> tempQueue = readyQueue;
+    while (!tempQueue.empty()) {
+        auto process = tempQueue.front();
+        tempQueue.pop();
+        
+        std::string status = "Waiting";
+        if (memoryManager.isAllocated(process)) {
+            status += "*";  // * indicates process has memory allocated
+            totalMemAllocated += process->memorySize;
+        }
+        printProcessRow(process, status);
+        waitingCount++;
+    }
+
+    // Print finished processes (last 5 only to avoid clutter)
+    int finishedShown = 0;
+    for (auto it = finishedProcesses.rbegin(); 
+         it != finishedProcesses.rend() && finishedShown < 5; 
+         ++it, ++finishedShown) {
+        printProcessRow(*it, "Finished");
+        finishedCount++;
+    }
+
+    if (finishedProcesses.size() > 5) {
+        std::cout << "|      | ...            |       |               |           | (+" 
+                  << (finishedProcesses.size() - 5) << " more)      |\n";
+    }
+
+    std::cout << "+------+----------------+-------+---------------+-----------+----------------+\n";
+    
+    // Summary section
+    std::cout << "| Summary:                                                                    |\n";
+    std::cout << "| Running: " << std::setw(3) << runningCount 
+              << " | Waiting: " << std::setw(3) << waitingCount 
+              << " | Finished: " << std::setw(3) << finishedProcesses.size()
+              << " | Total: " << std::setw(3) << (runningCount + waitingCount + finishedProcesses.size()) << "                    |\n";
+    
+    // Memory utilization
+    double memUtilization = totalMem > 0 ? (double(usedMem) / totalMem) * 100.0 : 0.0;
+    std::cout << "| Memory Utilization: " << std::fixed << std::setprecision(1) 
+              << std::setw(5) << memUtilization << "%                                          |\n";
+    
+    // Frame information
+    int totalFrames = memoryManager.getTotalMemory() / memoryManager.getMemPerFrame();
+    int usedFrames = memoryManager.getUsedMemory() / memoryManager.getMemPerFrame();
+    std::cout << "| Frames: " << usedFrames << "/" << totalFrames 
+              << " used (" << std::setprecision(1) 
+              << (totalFrames > 0 ? (double(usedFrames) / totalFrames) * 100.0 : 0.0) 
+              << "%)                                        |\n";
+              
+    // Page statistics
+    std::cout << "| Page I/O: " << memoryManager.getPageIns() << " ins, " 
+              << memoryManager.getPageOuts() << " outs                                   |\n";
+    
+    std::cout << "+-----------------------------------------------------------------------------+\n";
+    std::cout << "| Legend: * = Process has memory allocated                                    |\n";
     std::cout << "+-----------------------------------------------------------------------------+\n";
 }
 

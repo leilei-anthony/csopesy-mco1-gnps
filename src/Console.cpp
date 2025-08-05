@@ -115,13 +115,12 @@ void Console::handleScreenCommand(const std::string& command) {
                 currentScreen.name = processName;
                 displayProcessScreen();
             } else {
-                if (auto process = scheduler.getAllProcess(processName)) {
-                    std::string timestamp = getCurrentTimeString();
-                    std::cout << "Process " << processName << " shut down due to memory access violation error that occurred at " << timestamp << ". 0x" << process->invalidAccess << " invalid." << std::endl;
-                } else {
-                    std::cout << "Process " << processName << " not found." << std::endl;
-                }
-   
+                // if (auto process = scheduler.getAllProcess(processName)) {
+                //     std::string timestamp = getCurrentTimeString();
+                //     std::cout << "Process " << processName << " shut down due to memory access violation error that occurred at " << timestamp << ". 0x" << process->invalidAccess << " invalid." << std::endl;
+                // } else {
+                // }
+                std::cout << "Process " << processName << " not found." << std::endl;
             }
         } else if (option == "-ls") {
             scheduler.listProcesses();
