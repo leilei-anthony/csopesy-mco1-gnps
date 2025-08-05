@@ -28,7 +28,7 @@ void Process::generateRandomInstructions(int minIns, int maxIns) {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> instrDis(minIns, maxIns);
-    std::uniform_int_distribution<> typeDis(0, 8); // Updated to include READ and WRITE
+    std::uniform_int_distribution<> typeDis(0, 6); // Updated to include READ and WRITE
     
     totalInstructions = instrDis(gen);
     instructions.clear();
@@ -41,7 +41,7 @@ void Process::generateRandomInstructions(int minIns, int maxIns) {
         switch (type) {
             case 0: // PRINT
                 instr.type = InstructionType::PRINT;
-                instr.params.emplace_back("Hello world from " + name + "!");
+                instr.params.emplace_back("\"Hello world from " + name + "!\"");
                 break;
             case 1: // DECLARE
                 instr.type = InstructionType::DECLARE;
@@ -316,30 +316,41 @@ bool Process::executeNextInstruction(int coreId) {
 
 std::string Process::processPrintStatement(const std::string& statement) {
     std::string result = statement;
-    
-    // Remove quotes if present
-    if (result.front() == '"' && result.back() == '"') {
-        result = result.substr(1, result.length() - 2);
-    }
-    
-    // Handle string concatenation with variables
+
+    // Trim whitespace
+    result.erase(0, result.find_first_not_of(" \t\n\r"));
+    result.erase(result.find_last_not_of(" \t\n\r") + 1);
+
+    // Handle case: "Result: " + var
     size_t plusPos = result.find(" + ");
     if (plusPos != std::string::npos) {
         std::string leftPart = result.substr(0, plusPos);
         std::string rightPart = result.substr(plusPos + 3);
-        
+
         // Remove quotes from left part if present
-        if (leftPart.front() == '"' && leftPart.back() == '"') {
+        if (!leftPart.empty() && leftPart.front() == '"' && leftPart.back() == '"') {
             leftPart = leftPart.substr(1, leftPart.length() - 2);
         }
-        
-        // Get value of right part (variable)
+
+        // Get value of right part (assume it's a variable)
         uint16_t varValue = getValue(rightPart);
-        result = leftPart + std::to_string(varValue);
+        return leftPart + std::to_string(varValue);
     }
-    
-    return result;
+
+    // Handle case: just a string literal
+    if (!result.empty() && result.front() == '"' && result.back() == '"') {
+        return result.substr(1, result.length() - 2);
+    }
+
+    // Handle case: just a variable
+    try {
+        uint16_t value = getValue(result);
+        return std::to_string(value);
+    } catch (...) {
+        return "[error: unknown variable or format]";
+    }
 }
+
 
 uint32_t Process::parseHexAddress(const std::string& hexStr) {
     std::string cleanHex = hexStr;

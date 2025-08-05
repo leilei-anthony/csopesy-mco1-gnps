@@ -6,6 +6,7 @@
 #include <algorithm>
 
 
+
 CPUScheduler::~CPUScheduler() {
     shutdown();
 }
@@ -160,6 +161,35 @@ ProcessPtr CPUScheduler::getAllProcess(const std::string& name) {
     return nullptr;
 }
 
+ProcessPtr CPUScheduler::getProcessByPID(int pid) {
+    std::lock_guard<std::mutex> lock(schedulerMutex);
+
+    // Check running processes
+    auto it = std::find_if(runningProcesses.begin(), runningProcesses.end(),
+        [pid](const ProcessPtr& process) { return process->pid == pid; });
+    if (it != runningProcesses.end()) return *it;
+
+    // Check finished processes
+    it = std::find_if(finishedProcesses.begin(), finishedProcesses.end(),
+        [pid](const ProcessPtr& process) { return process->pid == pid; });
+    if (it != finishedProcesses.end()) return *it;
+
+    // Check ready queue
+    std::queue<ProcessPtr> tempQueue = readyQueue;
+    while (!tempQueue.empty()) {
+        auto process = tempQueue.front();
+        tempQueue.pop();
+        if (process->pid == pid) return process;
+    }
+
+    
+
+    return nullptr;
+}
+
+
+
+
 bool CPUScheduler::checkExistingProcess(const std::string& name) {
 
 // std::unique_lock<std::mutex> testLock(schedulerMutex, std::defer_lock);
@@ -209,7 +239,7 @@ void CPUScheduler::listProcesses() {
     
     std::cout << "Running processes:" << std::endl;
     for (const auto& process : runningProcesses) {
-        std::cout << process->name << "\t(" << process->creationTime 
+        std::cout << process->name << " pid: " << process->pid << "\t(" << process->creationTime 
                   << ")\tCore: " << process->assignedCore << "\t"
                   << process->currentInstruction << " / " 
                   << process->totalInstructions << std::endl;
@@ -492,6 +522,49 @@ void CPUScheduler::printVmstat() const {
     std::cout << "\n======================\n";
 }
 
+std::vector<ProcessPtr> CPUScheduler::listAllProcesses() {
+    std::lock_guard<std::mutex> lock(schedulerMutex);
+    std::vector<ProcessPtr> all;
+
+    all.insert(all.end(), runningProcesses.begin(), runningProcesses.end());
+    all.insert(all.end(), finishedProcesses.begin(), finishedProcesses.end());
+
+    std::queue<ProcessPtr> tempQueue = readyQueue;
+    while (!tempQueue.empty()) {
+        all.push_back(tempQueue.front());
+        tempQueue.pop();
+    }
+
+    return all;
+}
+
+
+
+
+void CPUScheduler::printProcessSMI() {
+    std::cout << "+-----------------------------------------------------------------------------+\n";
+    std::cout << "|                          Process Memory Management                          |\n";
+    std::cout << "+-------------------------------+----------------------+----------------------+\n";
+
+    size_t totalMem = memoryManager.getTotalMemory();       // in bytes
+    size_t usedMem = memoryManager.getUsedMemory();         // in bytes
+    size_t freeMem = totalMem - usedMem;
+
+    std::cout << "| Total Memory: " << std::setw(12) << totalMem
+              << " B | Used Memory: " << std::setw(12) << usedMem
+              << " B | Free Memory: " << std::setw(12) << freeMem << " B |\n";
+
+    std::cout << "+-------------------------------+----------------------+----------------------+\n";
+    std::cout << "| PID  | Process Name   | Pages | Mem Usage (B) | Status    | Start Time |\n";
+    std::cout << "|------|----------------|-------|----------------|-----------|------------|\n";
+
+    //  list of processes and memory occupied
+
+    std::cout << "+-----------------------------------------------------------------------------+\n";
+}
+
+
+
 bool CPUScheduler::addProcessWithInstructions(const std::string& name, int memSize, const std::string& instructions) {
     if (!initialized) {
         std::cout << "Please initialize the scheduler first." << std::endl;
@@ -503,23 +576,23 @@ bool CPUScheduler::addProcessWithInstructions(const std::string& name, int memSi
         std::cout << "Process " << name << " already exists." << std::endl;
         return false;
     }
-    
+
     // Create new process with specified memory size
     auto process = std::make_shared<Process>(name, processCounter++, memSize);
-    
+
     // Parse and set custom instructions
     if (!process->parseUserInstructions(instructions)) {
         std::cout << "Error parsing instructions for process " << name << std::endl;
         return false;
     }
-    
+
     // Add to ready queue
     {
         std::lock_guard<std::mutex> lock(schedulerMutex);
         readyQueue.push(process);
     }
     cv.notify_one();
-    
+
     return true;
 }
 

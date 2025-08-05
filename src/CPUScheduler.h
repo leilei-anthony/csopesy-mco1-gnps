@@ -24,6 +24,7 @@ public:
     ProcessPtr getProcess(const std::string& name);
     ProcessPtr getAllProcess(const std::string& name);
     bool checkExistingProcess(const std::string& name);
+    ProcessPtr getProcessByPID(int pid);
 
     // new
     bool addProcessWithInstructions(const std::string& name, int memSize, const std::string& instructions);
@@ -36,7 +37,10 @@ public:
     void listProcesses();
     void generateReport();
     void printVmstat() const; // vmstat command
+    void printProcessSMI();
     
+    std::vector<ProcessPtr> listAllProcesses();
+
     // Getters
     bool isInitialized() const { return initialized; }
     bool isBatchRunning() const { return batchGenerationRunning; }
@@ -65,7 +69,7 @@ private:
     bool initialized = false;
     
     FirstFitMemoryAllocator memoryManager; // new addition
-    
+
     // Private methods
     bool loadConfig();
     void coreWorker(int coreId);

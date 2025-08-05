@@ -9,7 +9,22 @@ public:
     
 private:
     CPUScheduler scheduler;
-    std::string currentScreen;
+
+    struct ScreenContext {
+    std::string name;
+    int pid = -1;
+
+    bool isEmpty() const {
+        return name.empty() && pid == -1;
+    }
+
+    void clear() {
+        name.clear();
+        pid = -1;
+    }
+    };
+    ScreenContext currentScreen;
+
     
     // Display methods
     void displayHeader();

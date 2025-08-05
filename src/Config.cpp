@@ -199,14 +199,31 @@ bool Config::validateDelaysPerExec(unsigned long value) const {
     return true;
 }
 
-bool Config::validateMaxOverallMem(unsigned long value) const {  // new addition
-    return value >= 1024 && value <= UINT32_MAX;
+// Checks if value is a power of 2 and within [2^6, 2^16]
+bool Config::validateMaxOverallMem(unsigned long value) const {
+    if (value < 64 || value > 65536) {
+        std::cerr << "Error: max-overall-mem must be in range [2^6, 2^16]. Got: " << value << std::endl;
+        return false;
+    }
+    if ((value & (value - 1)) != 0) {
+        std::cerr << "Error: max-overall-mem must be a power of 2. Got: " << value << std::endl;
+        return false;
+    }
+    return true;
 }
 
-bool Config::validateMemPerFrame(unsigned long value) const {  // new addition
-    return value >= 1 && value <= 1024;
+// Checks if value is a power of 2 and within [2^6, 2^16]
+bool Config::validateMemPerFrame(unsigned long value) const {
+    if (value < 64 || value > 65536) {
+        std::cerr << "Error: mem-per-frame must be in range [2^6, 2^16]. Got: " << value << std::endl;
+        return false;
+    }
+    if ((value & (value - 1)) != 0) {
+        std::cerr << "Error: mem-per-frame must be a power of 2. Got: " << value << std::endl;
+        return false;
+    }
+    return true;
 }
-
 
 // Checks if value is a power of 2 and within [2^6, 2^16]
 bool Config::validateMinMemPerProc(unsigned long value) const {

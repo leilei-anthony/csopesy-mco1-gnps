@@ -23,15 +23,15 @@ void Console::mainLoop() {
     std::string input;
     
     while (true) {
-        if (currentScreen.empty()) {
+        if (currentScreen.isEmpty()) {
             std::cout << "root:\\> ";
         } else {
-            std::cout << currentScreen << ":\\> ";
+            std::cout << currentScreen.name << ":\\> ";
         }
         
         std::getline(std::cin, input);
         
-        if (currentScreen.empty()) {
+        if (currentScreen.isEmpty()) {
             handleMainCommand(input);
         } else {
             handleScreenCommand(input);
@@ -65,13 +65,15 @@ void Console::handleMainCommand(const std::string& command) {
         scheduler.generateReport();
     } else if (cmd == "vmstat") {
         scheduler.printVmstat();
-    }else {
+    } else if (cmd == "process-smi") {
+        scheduler.printProcessSMI();
+    } else {
         std::cout << "Command not recognized." << std::endl;
     }
 }
 
 void Console::handleScreenCommand(const std::string& command) {
-    if (currentScreen.empty()) {
+    if (currentScreen.isEmpty()) {
         auto tokens = parseCommand(command);
         if (tokens.size() < 2 || tokens[0] != "screen") {
             std::cout << "Invalid screen command format." << std::endl;
@@ -94,14 +96,15 @@ void Console::handleScreenCommand(const std::string& command) {
 
             if (!scheduler.checkExistingProcess(processName)) {
                 std::cout << "here if";
-                currentScreen = processName;
+                currentScreen.name = processName;
                 displayProcessScreen();
                 return;
             } else {
                 std::cout << "here else";
                 scheduler.addProcess(processName, memSize);
                 std::cout << "Process " << processName << " added with memory size: " << memSize << " bytes." << std::endl;
-                currentScreen = processName;
+                currentScreen.name = processName;
+
                 displayProcessScreen();
             }
 
@@ -109,7 +112,7 @@ void Console::handleScreenCommand(const std::string& command) {
             const std::string& processName = tokens[2];
             auto process = scheduler.getProcess(processName);
             if (process) {
-                currentScreen = processName;
+                currentScreen.name = processName;
                 displayProcessScreen();
             } else {
                 std::cout << "Process " << processName << " not found." << std::endl;
@@ -131,15 +134,25 @@ void Console::handleScreenCommand(const std::string& command) {
             
             std::string instructions = command.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
 
-            if (instructions.empty() || instructions.back() != ';') {
-                std::cout << "invalid command: instruction must end with a semicolon" << std::endl;
-                return;
+            // if (instructions.empty() || instructions.back() != ';') {
+            //     std::cout << "invalid command: instruction must end with a semicolon" << std::endl;
+            //     return;
+            // }
+
+            // Count number of valid (non-empty) instructions
+            std::stringstream ss(instructions);
+            std::string instr;
+            size_t count = 0;
+
+            while (std::getline(ss, instr, ';')) {
+                // Trim leading/trailing whitespace and ignore empty segments
+                if (!instr.empty() && instr.find_first_not_of(" \t\n\r") != std::string::npos) {
+                    count++;
+                }
             }
 
-            // Count number of instructions (semicolon separated)
-            size_t count = std::count(instructions.begin(), instructions.end(), ';');
             if (count < 1 || count > 50) {
-                std::cout << "invalid command: must contain 1–50 instructions" << std::endl;
+                std::cout << "invalid command: must contain 1-50 instructions; current count: " << count << std::endl;
                 return;
             }
 
@@ -152,7 +165,7 @@ void Console::handleScreenCommand(const std::string& command) {
             // Check if process already exists
             if (!scheduler.checkExistingProcess(processName)) {
                 std::cout << "Process " << processName << " already exists." << std::endl;
-                currentScreen = processName;
+                currentScreen.name = processName;
                 displayProcessScreen();
                 return;
             }
@@ -160,7 +173,7 @@ void Console::handleScreenCommand(const std::string& command) {
             // Add process with custom instructions
             if (scheduler.addProcessWithInstructions(processName, memSize, instructions)) {
                 std::cout << "Process " << processName << " created with custom instructions." << std::endl;
-                currentScreen = processName;
+                currentScreen.name = processName;
                 displayProcessScreen();
             } else {
                 std::cout << "Failed to create process " << processName << " with custom instructions." << std::endl;
@@ -183,7 +196,7 @@ void Console::handleScreenCommand(const std::string& command) {
 
 void Console::displayProcessScreen() {
     clearScreen();
-    std::cout << "Process Screen: " << currentScreen << std::endl;
+    std::cout << "Process Screen: " << currentScreen.name << std::endl;
     std::cout << "===============================================" << std::endl;
     displayProcessInfo();
     std::cout << "===============================================" << std::endl;
@@ -191,9 +204,10 @@ void Console::displayProcessScreen() {
 }
 
 void Console::displayProcessInfo() {
-    auto process = scheduler.getAllProcess(currentScreen);
+
+    auto process = scheduler.getAllProcess(currentScreen.name);
     if (!process) {
-        std::cout << "Process " << currentScreen << " not found." << std::endl;
+        std::cout << "Process " << currentScreen.name << " not found." << std::endl;
         currentScreen.clear();
         return;
     }
