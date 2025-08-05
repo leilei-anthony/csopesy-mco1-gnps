@@ -402,7 +402,13 @@ void Process::handleMemoryAccessViolation(uint32_t address) {
              << "Attempted to access address 0x" << std::hex << address
              << " outside allocated memory space (0x0 - 0x" << std::hex << (memory.size() - 1) << ")";
     printLogs.push_back(logEntry.str());
+
+    std::stringstream ss;
+    ss << std::hex << std::uppercase << address;
+    invalidAccess = ss.str();  // Store as hex string (e.g., "0x500")
+    
     isFinished = true;
+    accessViolation = true;
     finishTime = getCurrentTimestamp();
 }
 

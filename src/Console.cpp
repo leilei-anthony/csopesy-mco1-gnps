@@ -115,7 +115,13 @@ void Console::handleScreenCommand(const std::string& command) {
                 currentScreen.name = processName;
                 displayProcessScreen();
             } else {
-                std::cout << "Process " << processName << " not found." << std::endl;
+                if (auto process = scheduler.getAllProcess(processName)) {
+                    std::string timestamp = getCurrentTimeString();
+                    std::cout << "Process " << processName << " shut down due to memory access violation error that occurred at " << timestamp << ". 0x" << process->invalidAccess << " invalid." << std::endl;
+                } else {
+                    std::cout << "Process " << processName << " not found." << std::endl;
+                }
+   
             }
         } else if (option == "-ls") {
             scheduler.listProcesses();
@@ -201,6 +207,15 @@ void Console::displayProcessScreen() {
     displayProcessInfo();
     std::cout << "===============================================" << std::endl;
     std::cout << "Type 'process-smi' for process info, 'exit' to return to main menu." << std::endl;
+}
+
+std::string Console::getCurrentTimeString() {
+    std::time_t now = std::time(nullptr);
+    std::tm* local = std::localtime(&now);
+
+    char buffer[9];
+    std::strftime(buffer, sizeof(buffer), "%H:%M:%S", local);
+    return std::string(buffer);
 }
 
 void Console::displayProcessInfo() {

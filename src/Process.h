@@ -18,6 +18,9 @@ public:
     int assignedCore;
     bool isFinished;
 
+    bool accessViolation;
+    std::string invalidAccess;
+
     // Memory and variables
     std::vector<uint8_t> memory;
     size_t maxVariables;
