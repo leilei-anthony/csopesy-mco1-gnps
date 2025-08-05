@@ -1,4 +1,4 @@
-# csopesy-mco1-gnps
+# csopesy-mco2-gnps
 
 ## CSOPESY - S14
 
