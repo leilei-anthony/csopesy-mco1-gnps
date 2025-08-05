@@ -29,8 +29,8 @@ private:
     int memPerFrame;
     int totalFrames;
     int totalMemory;
-    int pageIns;
-    int pageOuts;
+    int pageIns = 0;
+    int pageOuts = 0;
     
     std::map<int, std::map<int, int>> pageTables; // pid -> {virtualPage -> frameId}
     std::deque<int> fifoQueue; // for FIFO page replacement

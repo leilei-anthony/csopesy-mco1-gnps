@@ -28,7 +28,7 @@ void Process::generateRandomInstructions(int minIns, int maxIns) {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> instrDis(minIns, maxIns);
-    std::uniform_int_distribution<> typeDis(0, 6); // Updated to include READ and WRITE
+    std::uniform_int_distribution<> typeDis(0, 8); // Updated to include READ and WRITE
     
     totalInstructions = instrDis(gen);
     instructions.clear();
@@ -74,13 +74,27 @@ void Process::generateRandomInstructions(int minIns, int maxIns) {
             case 7: // READ
                 instr.type = InstructionType::READ;
                 instr.params.emplace_back("readVar" + std::to_string(i));
-                instr.params.emplace_back("0x" + std::to_string(gen() % 1000));
+                {
+                    if (memorySize <= 64) break;  // Prevent invalid access if memory too small
+                    int addr = 64 + (gen() % (memorySize - 64));
+                    std::stringstream ss;
+                    ss << "0x" << std::hex << addr;
+                    instr.params.emplace_back(ss.str());
+                }
                 break;
+
             case 8: // WRITE
                 instr.type = InstructionType::WRITE;
-                instr.params.emplace_back("0x" + std::to_string(gen() % 1000));
-                instr.params.emplace_back(std::to_string(gen() % 100));
+                {
+                    if (memorySize <= 64) break;
+                    int addr = 64 + (gen() % (memorySize - 64));
+                    std::stringstream ss;
+                    ss << "0x" << std::hex << addr;
+                    instr.params.emplace_back(ss.str());
+                }
+                instr.params.emplace_back(std::to_string(gen() % 256));
                 break;
+
         }
         
         instructions.push_back(std::move(instr));
