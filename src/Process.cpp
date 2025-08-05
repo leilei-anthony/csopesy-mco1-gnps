@@ -41,7 +41,7 @@ void Process::generateRandomInstructions(int minIns, int maxIns) {
         switch (type) {
             case 0: // PRINT
                 instr.type = InstructionType::PRINT;
-                instr.params.emplace_back("Hello world from " + name + "!");
+                instr.params.emplace_back("\"Hello world from " + name + "!\"");
                 break;
             case 1: // DECLARE
                 instr.type = InstructionType::DECLARE;

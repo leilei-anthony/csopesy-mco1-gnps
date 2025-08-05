@@ -225,7 +225,6 @@ bool Config::validateMemPerFrame(unsigned long value) const {
     return true;
 }
 
-
 // Checks if value is a power of 2 and within [2^6, 2^16]
 bool Config::validateMinMemPerProc(unsigned long value) const {
     if (value < 64 || value > 65536) {
