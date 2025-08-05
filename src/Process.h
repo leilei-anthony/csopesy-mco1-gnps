@@ -23,11 +23,11 @@ public:
 
     // Memory and variables
     std::vector<uint8_t> memory;
-    size_t maxVariables;
+    static constexpr size_t maxVariables = 32; // 32 variables * 2 bytes = 64 bytes
 
     std::vector<std::string> printLogs;
     std::vector<Instruction> instructions;
-    std::map<std::string, uint16_t> variables;
+    std::map<std::string, uint16_t> variables; // symbol table: name -> value
 
     // Round-robin scheduling variables
     int remainingQuantum;
