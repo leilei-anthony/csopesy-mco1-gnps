@@ -83,7 +83,6 @@ void CPUScheduler::addProcess(const std::string& name, int memSize) {
 
     int actualMemSize = memSize;
     if (memSize == -1) {
-        // For batch generation, roll random power of 2 between min and max
         int minMem = config.getMinMemPerProc();
         int maxMem = config.getMaxMemPerProc();
         std::vector<int> powers;
@@ -100,6 +99,12 @@ void CPUScheduler::addProcess(const std::string& name, int memSize) {
 
     auto process = std::make_shared<Process>(name, processCounter++, actualMemSize);
     process->generateRandomInstructions(config.getMinIns(), config.getMaxIns());
+
+    // Try to allocate memory right away
+    if (!memoryManager.allocate(process)) {
+        std::cout << "[MEM FAIL] Could not allocate memory for process " << process->name << "\n";
+        return; // skip adding process if memory full
+    }
 
     {
         std::lock_guard<std::mutex> lock(schedulerMutex);
@@ -295,7 +300,6 @@ void CPUScheduler::batchGenerator() {
     while (batchGenerationRunning && schedulerRunning) {
         if (static_cast<unsigned long>(cpuTicks - lastTick) >= config.getBatchProcessFreq()) {
             std::string processName = "p" + std::to_string(processCounter++);
-            // Roll random power of 2 between min and max for memory size
             int minMem = config.getMinMemPerProc();
             int maxMem = config.getMaxMemPerProc();
             std::vector<int> powers;
@@ -305,16 +309,23 @@ void CPUScheduler::batchGenerator() {
             }
             int memSize = minMem;
             if (!powers.empty()) memSize = powers[rand() % powers.size()];
+
             auto process = std::make_shared<Process>(processName, processCounter - 1, memSize);
             process->generateRandomInstructions(config.getMinIns(), config.getMaxIns());
-            {
-                std::lock_guard<std::mutex> lock(schedulerMutex);
-                readyQueue.push(process);
+
+            // Try to allocate memory right away
+            if (!memoryManager.allocate(process)) {
+                // std::cout << "[MEM FAIL] Could not allocate memory for process " << process->name << "\n";
+            } else {
+                {
+                    std::lock_guard<std::mutex> lock(schedulerMutex);
+                    readyQueue.push(process);
+                }
+                cv.notify_one();
             }
-            cv.notify_one();
+
             lastTick = cpuTicks;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
 
@@ -333,141 +344,71 @@ void CPUScheduler::coreWorker(int coreId) {
                 runningProcesses.push_back(process);
             } 
         }
-        if (process) {
-            // Try to allocate memory for the process
-            if (!memoryManager.allocate(process)) {
-                // Memory allocation failed, try to make space
-                bool spaceFreed = false;
-                
-                {
-                    std::lock_guard<std::mutex> lock(schedulerMutex);
-                    
-                    // Look for processes in ready queue that have memory allocated
-                    // and deallocate the first one found (FIFO order)
-                    std::queue<ProcessPtr> tempQueue;
-                    
-                    while (!readyQueue.empty() && !spaceFreed) {
-                        ProcessPtr waitingProcess = readyQueue.front();
-                        readyQueue.pop();
-                        
-                        if (memoryManager.isAllocated(waitingProcess)) {
-                            // Deallocate memory from this waiting process
-                            memoryManager.deallocate(waitingProcess);
-                            spaceFreed = true;
-                        }
-                        
-                        tempQueue.push(waitingProcess);
-                    }
-                    
-                    // Put all processes back in ready queue
-                    while (!tempQueue.empty()) {
-                        readyQueue.push(tempQueue.front());
-                        tempQueue.pop();
-                    }
-                }
-                
-                // Try to allocate again after freeing space
-                if (spaceFreed && !memoryManager.allocate(process)) {
-                    // Still couldn't allocate, put process back in ready queue
-                    {
-                        std::lock_guard<std::mutex> lock(schedulerMutex);
-                        readyQueue.push(process);
-                        runningProcesses.erase(
-                            std::remove(runningProcesses.begin(), runningProcesses.end(), process),
-                            runningProcesses.end()
-                        );
-                    }
-                    cv.notify_one();
-                    continue;
-                } else if (!spaceFreed) {
-                    // No space could be freed, put process back in ready queue
-                    {
-                        std::lock_guard<std::mutex> lock(schedulerMutex);
-                        readyQueue.push(process);
-                        runningProcesses.erase(
-                            std::remove(runningProcesses.begin(), runningProcesses.end(), process),
-                            runningProcesses.end()
-                        );
-                    }
-                    cv.notify_one();
-                    continue;
-                }
-            }
-        } else {
+
+        if (!process) {
             continue;
         }
-        
-        if (process) {
-            bool processRunning = true;
-            while (processRunning && schedulerRunning) {
-                // Mark as active tick
-                {
-                    std::lock_guard<std::mutex> lock(schedulerMutex);
-                    activeCpuTicks++;
-                }
-                bool stillRunning = process->executeNextInstruction(coreId);
-                // std::cout << "CHECK1" << std::endl;
-                // Memory dump logic
-                int newQuantumCycle = cpuTicks / config.getQuantumCycles();
-            
-                int configquantumcycles = config.getQuantumCycles();
-                // std::cout << "newQuantumCycle: " << newQuantumCycle << std::endl;
-                // std::cout << "currentQuantumCycle: " << currentQuantumCycle << std::endl;
-                // std::cout << "cpuTicks: " << cpuTicks << std::endl;
-                // std::cout << "config quantum cycles: " << configquantumcycles << std::endl;
 
-                if (newQuantumCycle > currentQuantumCycle) {
-                //    std::cout << "INSIDE QUANTUM CYCLE" << std::endl;
-                    currentQuantumCycle = newQuantumCycle;
-                    quantumCycleCount++;
-                    memoryManager.dumpStatusToFile(quantumCycleCount);
-                }
+        // Memory is already allocated in addProcess()/batchGenerator()
 
-                if (!stillRunning || process->isFinished) {
-                    processRunning = false;
-                } else if (config.getScheduler() == "rr") {
-                    process->remainingQuantum--;
-                    
-                    if (process->remainingQuantum <= 0 && !process->isSleeping) {
-                        bool shouldPreempt = false;
-                        {
-                            std::lock_guard<std::mutex> lock(schedulerMutex);
-                            shouldPreempt = !readyQueue.empty();
-                        }
-                        
-                        if (shouldPreempt) {
-                            // It will keep its memory allocation while waiting in ready queue
-                            {
-                                std::lock_guard<std::mutex> lock(schedulerMutex);
-                                readyQueue.push(process);
-                            }
-                            cv.notify_one();
-                            processRunning = false;
-                        } else {
-                            process->remainingQuantum = config.getQuantumCycles();
-                        }
-                    }
-                }
-                
-                if (config.getDelaysPerExec() > 0) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(config.getDelaysPerExec() * 10));
-                } else {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                }
-            } 
-            
+        bool processRunning = true;
+        while (processRunning && schedulerRunning) {
+            // Mark as active tick
             {
                 std::lock_guard<std::mutex> lock(schedulerMutex);
-                runningProcesses.erase(
-                    std::remove(runningProcesses.begin(), runningProcesses.end(), process),
-                    runningProcesses.end());
-                
-                if (process->isFinished) {
-                    finishedProcesses.push_back(process);
-                    process->assignedCore = -1;
-                    // Only deallocate memory when process is truly finished
-                    memoryManager.deallocate(process);
+                activeCpuTicks++;
+            }
+            bool stillRunning = process->executeNextInstruction(coreId);
+
+            // Memory dump logic
+            int newQuantumCycle = cpuTicks / config.getQuantumCycles();
+            if (newQuantumCycle > currentQuantumCycle) {
+                currentQuantumCycle = newQuantumCycle;
+                quantumCycleCount++;
+                memoryManager.dumpStatusToFile(quantumCycleCount);
+            }
+
+            if (!stillRunning || process->isFinished) {
+                processRunning = false;
+            } else if (config.getScheduler() == "rr") {
+                process->remainingQuantum--;
+                if (process->remainingQuantum <= 0 && !process->isSleeping) {
+                    bool shouldPreempt = false;
+                    {
+                        std::lock_guard<std::mutex> lock(schedulerMutex);
+                        shouldPreempt = !readyQueue.empty();
+                    }
+
+                    if (shouldPreempt) {
+                        {
+                            std::lock_guard<std::mutex> lock(schedulerMutex);
+                            readyQueue.push(process);
+                        }
+                        cv.notify_one();
+                        processRunning = false;
+                    } else {
+                        process->remainingQuantum = config.getQuantumCycles();
+                    }
                 }
+            }
+
+            if (config.getDelaysPerExec() > 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(config.getDelaysPerExec() * 10));
+            } else {
+             //   std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(schedulerMutex);
+            runningProcesses.erase(
+                std::remove(runningProcesses.begin(), runningProcesses.end(), process),
+                runningProcesses.end());
+            
+            if (process->isFinished) {
+                finishedProcesses.push_back(process);
+                process->assignedCore = -1;
+                memoryManager.deallocate(process); // only free when finished
             }
         }
     }
@@ -485,6 +426,9 @@ void CPUScheduler::printVmstat() const {
     const auto active     = activeCpuTicks.load();
     const auto idle       = totalTicks - active;
 
+    const int pageIns  = memoryManager.getPageIns();   // NEW
+    const int pageOuts = memoryManager.getPageOuts();  // NEW
+
     std::cout << "\n=== VMSTAT REPORT ===\n\n";
     std::cout << std::left << std::setw(20) << "Total memory:"      << totalMem << " bytes\n";
     std::cout << std::left << std::setw(20) << "Used memory:"       << usedMem  << " bytes\n";
@@ -494,10 +438,12 @@ void CPUScheduler::printVmstat() const {
     std::cout << std::left << std::setw(20) << "Active CPU ticks:"  << active   << "\n";
     std::cout << std::left << std::setw(20) << "Total CPU ticks:"   << totalTicks << "\n\n";
 
-    std::cout << std::left << std::setw(20) << "Num paged in:"      << "0 (not implemented)\n";
-    std::cout << std::left << std::setw(20) << "Num paged out:"     << "0 (not implemented)\n";
+    std::cout << std::left << std::setw(20) << "Num paged in:"      << pageIns << "\n";
+    std::cout << std::left << std::setw(20) << "Num paged out:"     << pageOuts << "\n";
 
     std::cout << "\n======================\n";
+
+
 }
 
 

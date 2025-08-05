@@ -6,6 +6,8 @@ enum class InstructionType {
     PRINT,
     DECLARE,
     ADD,
+    READ,
+    WRITE,
     SUBTRACT,
     SLEEP,
     FOR_START,

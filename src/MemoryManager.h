@@ -29,7 +29,9 @@ private:
     int memPerFrame;
     int totalFrames;
     int totalMemory;
-
+    int pageIns;
+    int pageOuts;
+    
     std::map<int, std::map<int, int>> pageTables; // pid -> {virtualPage -> frameId}
     std::deque<int> fifoQueue; // for FIFO page replacement
 
@@ -38,7 +40,7 @@ private:
 public:
 
     void init(int maxMemory, int frameSize, int procLimit);
-    int findContiguousFrames(int count);
+    std::vector<int> findAnyFreeFrames(int count);
     bool allocate(const std::shared_ptr<Process>& proc);
     void deallocate(const std::shared_ptr<Process>& proc);
     bool isAllocated(int pid) const;
@@ -50,6 +52,9 @@ public:
     int findFreeFrame();
     void markAccessViolation(std::string& errOut, uint16_t badAddr);
     bool isValidAddress(uint16_t addr);
+
+    int getPageIns() const;
+    int getPageOuts() const;
 
     int getMemPerFrame() const { return memPerFrame; }
     int getTotalMemory() const { return totalMemory; }

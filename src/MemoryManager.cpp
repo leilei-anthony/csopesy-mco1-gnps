@@ -21,53 +21,106 @@ void FirstFitMemoryAllocator::init(int maxMemory, int frameSize, int /*procLimit
     std::ofstream(backingStoreFile).close();
 }
 
-int FirstFitMemoryAllocator::findContiguousFrames(int count) {
-    for (int i = 0; i <= totalFrames - count; i++) {
-        bool canFit = true;
-        for (int j = i; j < i + count; j++) {
-            if (memory[j].ownerPid != -1) {
-                canFit = false;
-                break;
-            }
+std::vector<int> FirstFitMemoryAllocator::findAnyFreeFrames(int count) {
+    std::vector<int> freeFrames;
+    for (int i = 0; i < totalFrames && freeFrames.size() < count; ++i) {
+        if (memory[i].ownerPid == -1) {
+            freeFrames.push_back(i);
         }
-        if (canFit) return i;
     }
-    return -1; // No contiguous space found
+    return (freeFrames.size() == count) ? freeFrames : std::vector<int>{}; // Return empty if not enough
 }
 
 bool FirstFitMemoryAllocator::allocate(const std::shared_ptr<Process>& proc) {
+    int requiredPages = (proc->memorySize + memPerFrame - 1) / memPerFrame;
     pageTables[proc->pid] = {};
 
-
-    // Calculate required pages
-    int requiredPages = (proc->memorySize + memPerFrame - 1) / memPerFrame;
-
-    // Find and allocate contiguous frames for first-fit
-    int startFrame = findContiguousFrames(requiredPages);
-    if (startFrame == -1) {
-        pageTables.erase(proc->pid);
-        return false; // Not enough contiguous memory
-    }
-    
-    // Allocate the frames
-    for (int i = 0; i < requiredPages; i++) {
-        memory[startFrame + i].ownerPid = proc->pid;
-        memory[startFrame + i].virtualPage = i;
-        pageTables[proc->pid][i] = startFrame + i;
-        fifoQueue.push_back(startFrame + i);
-    }
-    
-    // Log to backing store
     std::ofstream store(backingStoreFile, std::ios::app);
-    store << "ALLOC pid=" << proc->pid
-          << " mem=" << proc->memorySize
-          << " pages=" << requiredPages
-          << "\n";
-    
+
+    // Step 1: Log allocation
+    if (store.is_open()) {
+        store << "ALLOC pid=" << proc->pid
+              << " mem=" << proc->memorySize
+              << " pages=" << requiredPages << "\n";
+    }
+
+    for (int i = 0; i < requiredPages; ++i) {
+        int frameIndex = -1;
+
+        // Try to find a free frame
+        auto free = findAnyFreeFrames(1);
+        if (!free.empty()) {
+            frameIndex = free[0];
+        } else {
+            // No free frame — perform FIFO replacement
+            if (fifoQueue.empty()) {
+                if (store.is_open()) store << "FAIL pid=" << proc->pid << " reason=No frames and queue empty\n";
+                pageTables.erase(proc->pid);
+                store.close();
+                return false;
+            }
+
+            frameIndex = fifoQueue.front();
+            fifoQueue.pop_front();
+
+            // Victim info
+            int victimPid = memory[frameIndex].ownerPid;
+            int victimVPage = memory[frameIndex].virtualPage;
+
+            // Remove mapping
+            pageTables[victimPid].erase(victimVPage);
+
+            // Log swapout
+            if (store.is_open()) {
+                store << "SWAPOUT pid=" << victimPid
+                      << " vpage=" << victimVPage
+                      << " pframe=" << frameIndex << "\n";
+            }
+
+            // Count as page out
+            pageOuts++;
+
+            // Mark frame as available
+            memory[frameIndex].ownerPid = -1;
+            memory[frameIndex].virtualPage = -1;
+        }
+
+        // Use frameIndex for this process
+        memory[frameIndex].ownerPid = proc->pid;
+        memory[frameIndex].virtualPage = i;
+        pageTables[proc->pid][i] = frameIndex;
+        fifoQueue.push_back(frameIndex);
+
+        // Log page fault and swapin
+        if (store.is_open()) {
+            store << "PAGEFAULT pid=" << proc->pid
+                  << " vpage=" << i << "\n";
+            store << "SWAPIN pid=" << proc->pid
+                  << " vpage=" << i
+                  << " pframe=" << frameIndex << "\n";
+        }
+
+        // Count as page in
+        pageIns++;
+    }
+
+    if (store.is_open()) {
+        store.close();
+    }
+
     return true;
 }
 
+
 void FirstFitMemoryAllocator::deallocate(const std::shared_ptr<Process>& proc) {
+    // Remove frames from FIFO *before* freeing
+    fifoQueue.erase(
+        std::remove_if(fifoQueue.begin(), fifoQueue.end(),
+            [&](int fId) { return memory[fId].ownerPid == proc->pid; }),
+        fifoQueue.end()
+    );
+
+    // Now clear memory frames
     for (auto& frame : memory) {
         if (frame.ownerPid == proc->pid) {
             frame.ownerPid = -1;
@@ -75,11 +128,17 @@ void FirstFitMemoryAllocator::deallocate(const std::shared_ptr<Process>& proc) {
         }
     }
 
+    // Remove from page table
     pageTables.erase(proc->pid);
 
-    fifoQueue.erase(std::remove_if(fifoQueue.begin(), fifoQueue.end(),
-        [&](int fId) { return memory[fId].ownerPid == proc->pid; }), fifoQueue.end());
+    std::ofstream store(backingStoreFile, std::ios::app);
+if (store.is_open()) {
+    store << "DEALLOC pid=" << proc->pid << "\n";
+    store.close();
 }
+
+}
+
 bool FirstFitMemoryAllocator::isAllocated(int pid) const {
     return pageTables.find(pid) != pageTables.end();
 }
@@ -87,88 +146,56 @@ bool FirstFitMemoryAllocator::isAllocated(const ProcessPtr& process) const {
     return isAllocated(process->pid);
 }
 
-void FirstFitMemoryAllocator::dumpStatusToFile(int quantumCycle) const{
-        // std::cout << "Dumping memory status to file for quantum cycle: " << quantumCycle << std::endl;
-        std::filesystem::create_directories("output");
-        std::ofstream file("output/memory_stamp_" + std::to_string(quantumCycle) + ".txt");
-        if (!file.is_open()) return;
-        
-        // Get current timestamp
-        auto now = std::chrono::system_clock::now();
-        auto time_t = std::chrono::system_clock::to_time_t(now);
-        std::stringstream ss;
-        ss << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S ");
-        
-        file << "Timestamp: " << ss.str();
-        file << "\n";
-        
-        // Count processes in memory
-        std::set<int> activePIDs;
-        int usedFrames = 0;
-        std::vector<int> holes;
-        int currentHole = 0;
-        
-        for (auto& frame : memory) {
-            if (frame.ownerPid == -1) {
-                currentHole++;
-            } else {
-                usedFrames++;
-                activePIDs.insert(frame.ownerPid);
-                if (currentHole > 0) {
-                    holes.push_back(currentHole);
-                    currentHole = 0;
-                }
-            }
-        }
-        if (currentHole > 0) holes.push_back(currentHole);
-        
-        // External fragmentation in KB
-        int fragmentationBytes = 0;
-        for (int hole : holes) {
-            fragmentationBytes += hole * memPerFrame;
-        }
-        
-        file << "Processes in memory: " << activePIDs.size() << "\n";
-        file << "External fragmentation: " << (fragmentationBytes / 1024) << " KB / " << (fragmentationBytes) << " B\n\n";
-        
-        // Add end boundary first
-        file << "----end----- = " << totalMemory << "\n\n";
+void FirstFitMemoryAllocator::dumpStatusToFile(int quantumCycle) const {
+    std::filesystem::create_directories("output");
+    std::ofstream file("output/memory_stamp_" + std::to_string(quantumCycle) + ".txt");
+    if (!file.is_open()) return;
 
-        // Collect all process blocks first
-        std::vector<std::tuple<int, int, int>> processBlocks; // start, end, pid
-        int i = 0;
-        while (i < totalFrames) {
-            if (memory[i].ownerPid != -1) {
-                int start = i;
-                int pid = memory[i].ownerPid;
-                while (i < totalFrames && memory[i].ownerPid == pid) {
-                    i++;
-                }
-                int end = i;  // exclusive
-                processBlocks.push_back({start, end, pid});
-            } else {
-                i++;
-            }
+    // Timestamp
+    auto now = std::chrono::system_clock::now();
+    auto time_t = std::chrono::system_clock::to_time_t(now);
+    std::stringstream ss;
+    ss << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S ");
+    file << "Timestamp: " << ss.str() << "\n";
+
+    // Memory summary
+    int usedFrames = 0;
+    std::set<int> activePIDs;
+
+    for (const auto& frame : memory) {
+        if (frame.ownerPid != -1) {
+            usedFrames++;
+            activePIDs.insert(frame.ownerPid);
         }
-        
-        // Output process blocks in reverse order (highest address first)
-        for (auto it = processBlocks.rbegin(); it != processBlocks.rend(); ++it) {
-            int start = std::get<0>(*it);
-            int end = std::get<1>(*it);
-            int pid = std::get<2>(*it);
-            
-            // Format: upper_limit\nP<pid>\nlower_limit\n
-            file << (end * memPerFrame) << "\n";
-            file << "P" << pid << "\n";
-            file << (start * memPerFrame) << "\n";
-            file << "\n";
-        }
-        
-        // Add boundary markers
-        file << "----start----- = 0\n";
-        
-        file.close();
     }
+
+    file << "Processes in memory: " << activePIDs.size() << "\n";
+    file << "Total memory: " << (totalMemory / 1024) << " KB / " << totalMemory << " B\n";
+    file << "Used memory: " << (getUsedMemory() / 1024) << " KB / " << getUsedMemory() << " B\n";
+    file << "Free memory: " << (getFreeMemory() / 1024) << " KB / " << getFreeMemory() << " B\n\n";
+    file << "Used frames: " << usedFrames << " / " << totalFrames << "\n";
+    file << "Free frames: " << (totalFrames - usedFrames) << "\n\n";
+
+    // Memory map (top to bottom)
+    file << "----end----- = " << totalMemory << "\n\n";
+
+    for (int i = totalFrames - 1; i >= 0; --i) {
+        const auto& frame = memory[i];
+        int upper = (i + 1) * memPerFrame;
+        int lower = i * memPerFrame;
+
+        file << upper << "\n";
+        if (frame.ownerPid != -1) {
+            file << "P" << frame.ownerPid << ":page#" << frame.virtualPage << "\n";
+        } else {
+            file << "FREE\n";
+        }
+        file << lower << "\n\n";
+    }
+
+    file << "----start----- = 0\n";
+    file.close();
+}
 
 
 bool FirstFitMemoryAllocator::writeMemory(int pid, uint16_t address, uint16_t value, std::string& errOut) {
@@ -257,3 +284,12 @@ void FirstFitMemoryAllocator::markAccessViolation(std::string& errOut, uint16_t 
 bool FirstFitMemoryAllocator::isValidAddress(uint16_t addr) {
     return addr < 65536;
 }
+
+int FirstFitMemoryAllocator::getPageIns() const {
+    return pageIns;
+}
+
+int FirstFitMemoryAllocator::getPageOuts() const {
+    return pageOuts;
+}
+
